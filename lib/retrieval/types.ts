@@ -1,0 +1,296 @@
+/**
+ * Retrieval API Types
+ *
+ * These types mirror the server's retrieval schema at:
+ * @see ../../../server/src/workers/retriever/schema.ts
+ *
+ * The retrieval API provides semantic search over user's memory data using
+ * vector similarity. It retrieves relevant events, interpretations, patterns,
+ * and insights based on natural language queries.
+ */
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+/**
+ * Source of evidence in the retrieval results.
+ */
+export enum EvidenceSource {
+  EVENT = 'EVENT',
+  INTERPRETATION = 'INTERPRETATION',
+  PATTERN = 'PATTERN',
+  INSIGHT = 'INSIGHT',
+}
+
+/**
+ * Reason why this evidence was retrieved.
+ */
+export enum RetrievalReason {
+  DIRECT_MATCH = 'DIRECT_MATCH', // Directly matched the search intent
+  EVENT_EXPANSION = 'EVENT_EXPANSION', // Retrieved via event expansion
+  PATTERN_LINK = 'PATTERN_LINK', // Linked to a retrieved event via PatternEvent
+  INSIGHT_LINK = 'INSIGHT_LINK', // Linked to a retrieved event via InsightEvent
+  COVERAGE_CONTROL = 'COVERAGE_CONTROL', // Added for temporal coverage
+}
+
+/**
+ * Intent type for retrieval biasing.
+ * The LLM classifies the question type to bias retrieval limits.
+ */
+export enum IntentType {
+  TEMPORAL = 'TEMPORAL', // "when did this happen?" -> bias Events
+  CAUSAL = 'CAUSAL', // "why did this happen?" -> bias Patterns
+  EVALUATIVE = 'EVALUATIVE', // "is this good/bad?" -> bias Insights
+  COMPARATIVE = 'COMPARATIVE', // "has this increased?" -> bias temporal Events + Patterns
+  EXPLORATORY = 'EXPLORATORY', // general questions -> balanced
+}
+
+// ============================================================================
+// Input Types
+// ============================================================================
+
+/**
+ * Time range filter for retrieval.
+ */
+export interface TimeRange {
+  from?: string; // ISO date string
+  to?: string; // ISO date string
+}
+
+/**
+ * Input for the retrieve endpoint.
+ *
+ * @example Basic usage
+ * ```ts
+ * const input: RetrieveInput = {
+ *   mainQuestion: "What foods have I been eating recently?",
+ * };
+ * ```
+ *
+ * @example With sub-question generation
+ * ```ts
+ * const input: RetrieveInput = {
+ *   mainQuestion: "Why am I feeling tired?",
+ *   generateSubQuestions: true,
+ *   context: "User has been logging sleep and exercise data...",
+ *   maxSubQuestions: 3,
+ * };
+ * ```
+ *
+ * @example With time range
+ * ```ts
+ * const input: RetrieveInput = {
+ *   mainQuestion: "What did I do last week?",
+ *   timeRange: {
+ *     from: "2024-01-01T00:00:00Z",
+ *     to: "2024-01-07T23:59:59Z",
+ *   },
+ * };
+ * ```
+ */
+export interface RetrieveInput {
+  /** The main question to answer (required) */
+  mainQuestion: string;
+
+  /**
+   * If true, the API will generate sub-questions using an LLM.
+   * Requires `context` to be provided.
+   */
+  generateSubQuestions?: boolean;
+
+  /**
+   * Context for generating sub-questions (e.g., conversation history, user profile).
+   * Required when `generateSubQuestions` is true.
+   */
+  context?: string;
+
+  /** Maximum number of sub-questions to generate (default: 5) */
+  maxSubQuestions?: number;
+
+  /**
+   * Pre-defined sub-questions to use instead of generating them.
+   * Mutually exclusive with `generateSubQuestions`.
+   */
+  subQuestions?: string[];
+
+  /** Optional time range to filter results */
+  timeRange?: TimeRange;
+}
+
+// ============================================================================
+// Evidence Types
+// ============================================================================
+
+/**
+ * Normalized evidence item - common structure for all evidence types.
+ *
+ * This is the unified format returned for events, interpretations, patterns,
+ * and insights after normalization and deduplication.
+ */
+export interface NormalizedEvidence {
+  /** Source table of this evidence */
+  source: EvidenceSource;
+
+  /** Unique ID of the record */
+  id: string;
+
+  /** Text content of the evidence */
+  content: string;
+
+  /** Related event ID (if applicable) */
+  relatedEventId: string | null;
+
+  /** Timestamp of the evidence */
+  timestamp: string; // ISO date string
+
+  /** Human-readable explanation of why this was retrieved */
+  whyThisWasRetrieved: string;
+
+  /** Relevance score (0-1, higher is better) */
+  relevanceScore: number;
+
+  /** Why this evidence was included in results */
+  retrievalReason: RetrievalReason;
+
+  /** Additional metadata (varies by source type) */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Search intent for a single table.
+ */
+export interface TableSearchIntent {
+  /** Natural language description of what to search for */
+  searchIntent: string;
+
+  /** Optional keywords to boost retrieval */
+  keywords?: string[];
+}
+
+/**
+ * Compiled queries for all 4 tables.
+ * Generated by the LLM in step 1 of the retrieval pipeline.
+ */
+export interface CompiledQuery {
+  /** Classified intent type for retrieval biasing */
+  intentType: IntentType;
+
+  /** Search intents for each table */
+  queries: {
+    Event: TableSearchIntent;
+    Interpretation: TableSearchIntent;
+    Pattern: TableSearchIntent;
+    Insight: TableSearchIntent;
+  };
+}
+
+/**
+ * Retrieved context for a single question.
+ * Contains normalized evidence from all 4 tables.
+ */
+export interface RetrievedContext {
+  events: NormalizedEvidence[];
+  interpretations: NormalizedEvidence[];
+  patterns: NormalizedEvidence[];
+  insights: NormalizedEvidence[];
+}
+
+/**
+ * Result for a single question (main or sub-question).
+ */
+export interface QuestionResult {
+  /** The question that was processed */
+  question: string;
+
+  /** Detected intent type */
+  intentType: IntentType;
+
+  /** Retrieved context from all tables */
+  retrievedContext: RetrievedContext;
+
+  /** The compiled queries used for retrieval */
+  compiledQueries: CompiledQuery;
+}
+
+// ============================================================================
+// Output Types
+// ============================================================================
+
+/**
+ * Full response from the retrieve endpoint.
+ *
+ * Contains results for the main question and any sub-questions,
+ * plus metadata about the retrieval process.
+ */
+export interface RetrieveResult {
+  /** User ID the retrieval was performed for */
+  userId: string;
+
+  /** Results for each question (main + sub-questions) */
+  results: QuestionResult[];
+
+  /** Total processing time in milliseconds */
+  processingTimeMs: number;
+
+  /** Whether sub-questions were generated by the API */
+  subQuestionsGenerated: boolean;
+
+  /** List of sub-questions (if any) */
+  subQuestions?: string[];
+}
+
+/**
+ * Error response from the retrieve endpoint.
+ */
+export interface RetrieveError {
+  error: string;
+}
+
+/**
+ * Union type for retrieve response (success or error).
+ */
+export type RetrieveResponse = RetrieveResult | RetrieveError;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Type guard to check if response is an error.
+ */
+export function isRetrieveError(
+  response: RetrieveResponse
+): response is RetrieveError {
+  return 'error' in response;
+}
+
+/**
+ * Get total evidence count from a question result.
+ */
+export function getTotalEvidenceCount(result: QuestionResult): number {
+  const { retrievedContext } = result;
+  return (
+    retrievedContext.events.length +
+    retrievedContext.interpretations.length +
+    retrievedContext.patterns.length +
+    retrievedContext.insights.length
+  );
+}
+
+/**
+ * Get all evidence items from a question result, sorted by relevance.
+ */
+export function getAllEvidenceSorted(
+  result: QuestionResult
+): NormalizedEvidence[] {
+  const { retrievedContext } = result;
+  const allEvidence = [
+    ...retrievedContext.events,
+    ...retrievedContext.interpretations,
+    ...retrievedContext.patterns,
+    ...retrievedContext.insights,
+  ];
+
+  return allEvidence.sort((a, b) => b.relevanceScore - a.relevanceScore);
+}

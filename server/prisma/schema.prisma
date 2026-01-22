@@ -1,0 +1,341 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector]
+}
+
+model User {
+  id                   String                @id @default(cuid())
+  email                String                @unique
+  name                 String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  timezone             String                @default("UTC")
+  baseline             String?
+  lastBaselineUpdate   DateTime?
+  nextDailyReviewDue   DateTime?
+  nextMonthlyReviewDue DateTime?
+  nextWeeklyReviewDue  DateTime?
+  dailyPlans           DailyPlan[]
+  events               Event[]
+  insights             Insight[]
+  interpretations      Interpretation[]
+  patterns             Pattern[]
+  reviews              Review[]
+  uomSuggestions       UOMUpdateSuggestion[]
+  workerJobs           WorkerJob[]
+
+  @@index([nextDailyReviewDue])
+  @@index([nextWeeklyReviewDue])
+  @@index([nextMonthlyReviewDue])
+}
+
+model Event {
+  id             String                 @id @default(cuid())
+  userId         String
+  content        String
+  audioRef       String?
+  occurredAt     DateTime
+  createdAt      DateTime               @default(now())
+  embedding      Unsupported("vector")?
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  insightEvents  InsightEvent[]
+  interpretation Interpretation?
+  patternEvents  PatternEvent[]
+
+  @@index([userId])
+  @@index([occurredAt])
+  @@index([userId, occurredAt])
+  @@index([userId, createdAt])
+}
+
+model Interpretation {
+  id                     String                  @id @default(cuid())
+  userId                 String
+  eventId                String                  @unique
+  content                String
+  source                 InterpretationSource
+  createdAt              DateTime                @default(now())
+  embedding              Unsupported("vector")?
+  insightInterpretations InsightInterpretation[]
+  event                  Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([source])
+  @@index([userId, source])
+}
+
+model Pattern {
+  id                 String                 @id @default(cuid())
+  userId             String
+  description        String
+  firstDetectedAt    DateTime               @default(now())
+  lastReinforcedAt   DateTime               @default(now())
+  status             PatternStatus          @default(ACTIVE)
+  createdAt          DateTime               @default(now())
+  embedding          Unsupported("vector")?
+  reinforcementCount Int                    @default(1)
+  insightPatterns    InsightPattern[]
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patternEvents      PatternEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@index([lastReinforcedAt])
+}
+
+model PatternEvent {
+  id        String   @id @default(cuid())
+  patternId String
+  eventId   String
+  addedAt   DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pattern   Pattern  @relation(fields: [patternId], references: [id], onDelete: Cascade)
+
+  @@unique([patternId, eventId])
+  @@index([patternId])
+  @@index([eventId])
+}
+
+model Insight {
+  id                     String                  @id @default(cuid())
+  userId                 String
+  statement              String
+  explanation            String
+  confidence             ConfidenceLevel         @default(EMERGING)
+  status                 InsightStatus           @default(SPECULATIVE)
+  category               String?
+  temporalScope          String?
+  supersededById         String?
+  supersedes             String?
+  embedding              Unsupported("vector")?
+  triggerType            String?
+  triggerEventId         String?
+  firstDetectedAt        DateTime                @default(now())
+  lastReinforcedAt       DateTime                @default(now())
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  insightEvents          InsightEvent[]
+  insightInterpretations InsightInterpretation[]
+  insightPatterns        InsightPattern[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([status])
+  @@index([category])
+}
+
+model InsightEvent {
+  id        String            @id @default(cuid())
+  insightId String
+  eventId   String
+  relevance EvidenceRelevance @default(SUPPORTING)
+  excerpt   String?
+  addedAt   DateTime          @default(now())
+  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  insight   Insight           @relation(fields: [insightId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, eventId])
+  @@index([insightId])
+  @@index([eventId])
+}
+
+model InsightPattern {
+  id        String            @id @default(cuid())
+  insightId String
+  patternId String
+  relevance EvidenceRelevance @default(SUPPORTING)
+  excerpt   String?
+  addedAt   DateTime          @default(now())
+  insight   Insight           @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  pattern   Pattern           @relation(fields: [patternId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, patternId])
+  @@index([insightId])
+  @@index([patternId])
+}
+
+model InsightInterpretation {
+  id               String            @id @default(cuid())
+  insightId        String
+  interpretationId String
+  relevance        EvidenceRelevance @default(SUPPORTING)
+  excerpt          String?
+  addedAt          DateTime          @default(now())
+  insight          Insight           @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  interpretation   Interpretation    @relation(fields: [interpretationId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, interpretationId])
+  @@index([insightId])
+  @@index([interpretationId])
+}
+
+model Review {
+  id                String                 @id @default(cuid())
+  userId            String
+  type              ReviewType
+  periodKey         String
+  periodStart       DateTime
+  periodEnd         DateTime
+  structuredContent Json
+  renderedMarkdown  String
+  summary           String
+  embedding         Unsupported("vector")?
+  eventIds          String[]
+  interpretationIds String[]
+  patternIds        String[]
+  insightIds        String[]
+  priorReviewIds    String[]
+  createdAt         DateTime               @default(now())
+  dailyPlan         DailyPlan?
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, periodKey])
+  @@index([userId])
+  @@index([userId, type])
+  @@index([periodStart])
+}
+
+model WorkerJob {
+  id             String    @id @default(cuid())
+  type           JobType
+  payload        Json
+  status         JobStatus @default(PENDING)
+  priority       Int       @default(0)
+  availableAt    DateTime  @default(now())
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  lastError      String?
+  lockedAt       DateTime?
+  lockedBy       String?
+  idempotencyKey String?   @unique
+  userId         String?
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt, priority])
+  @@index([type, status])
+  @@index([userId, type])
+  @@index([lockedAt])
+}
+
+model DailyPlan {
+  id               String                 @id @default(cuid())
+  userId           String
+  reviewId         String                 @unique
+  targetDate       DateTime
+  focusAreas       Json
+  sessions         Json
+  warnings         Json
+  ctas             Json
+  renderedMarkdown String
+  embedding        Unsupported("vector")?
+  createdAt        DateTime               @default(now())
+  review           Review                 @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetDate])
+  @@index([userId, targetDate])
+}
+
+model UOMUpdateSuggestion {
+  id              String              @id @default(cuid())
+  userId          String
+  suggestion      String
+  reasoning       String
+  driftType       UOMDriftType
+  confidence      ConfidenceLevel
+  patternRefs     String[]
+  insightRefs     String[]
+  reviewRefs      String[]
+  status          UOMSuggestionStatus @default(PENDING)
+  statusChangedAt DateTime?
+  targetSection   String?
+  createdAt       DateTime            @default(now())
+  expiresAt       DateTime?
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+enum InterpretationSource {
+  AUTOMATIC
+  THERAPIST
+  USER
+}
+
+enum PatternStatus {
+  ACTIVE
+  SUPERSEDED
+  DORMANT
+}
+
+enum InsightStatus {
+  CONFIRMED
+  LIKELY
+  SPECULATIVE
+  SUPERSEDED
+  WEAKENED
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  EMERGING
+}
+
+enum ReviewType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum EvidenceRelevance {
+  PRIMARY
+  SUPPORTING
+  CONTEXTUAL
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+enum JobType {
+  INTERPRET_EVENT
+  DETECT_PATTERNS
+  GENERATE_INSIGHTS
+  GENERATE_REVIEW
+  GENERATE_TOMORROW_PLAN
+  SUGGEST_UOM_UPDATE
+}
+
+enum UOMSuggestionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  IGNORED
+  EXPIRED
+}
+
+enum UOMDriftType {
+  ADDITION
+  MODIFICATION
+  REMOVAL
+}
