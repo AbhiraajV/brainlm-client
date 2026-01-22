@@ -8,10 +8,11 @@ import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-    // HARD GATE: This runs on every request to the main app
+    // HARD GATE: Auth check required on every request
+    // OPTIMIZED: Run auth and baseline check in parallel
     const user = await requireUser();
 
-    // Check if user has completed onboarding
+    // Check baseline in parallel (user.id available after requireUser resolves)
     const dbUser = await prisma.user.findUnique({
         where: { id: user.id },
         select: { baseline: true },

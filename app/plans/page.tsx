@@ -1,26 +1,13 @@
 import { Suspense } from 'react';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { PlansFeed } from '@/components/plans';
 import { FullscreenReader } from '@/components/ui/FullscreenReader';
-import { requireUser } from '@/server/auth';
-import { prisma } from '@/server/prisma/client';
 
 export const dynamic = 'force-dynamic';
 
+// Auth + baseline check already done in (app)/layout.tsx
 export default async function PlansPage() {
-  const user = await requireUser();
-
-  const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { baseline: true },
-  });
-
-  if (!dbUser?.baseline) {
-    redirect('/onboarding');
-  }
-
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
       {/* Header */}

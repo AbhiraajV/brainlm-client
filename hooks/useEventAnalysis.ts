@@ -10,6 +10,7 @@ import {
 import { useAnalysisCache } from '@/store/analysis-cache'
 import { deduplicatedFetch } from '@/lib/fetch-registry'
 import { getUniqueThinkingMessages } from '@/lib/thinking-messages'
+import { isRecentEvent } from '@/lib/cache-utils'
 
 // Adaptive polling schedule
 const POLL_SCHEDULE = [
@@ -41,9 +42,10 @@ export function useEventAnalysis(eventId: string, enablePolling: boolean = true)
   const [content, setContent] = useState<AnalysisContent | null>(null)
   const [isPolling, setIsPolling] = useState(false)
   const [thinkingMessages, setThinkingMessages] = useState<[string, string, string]>(['', '', ''])
+  const [isLoadingFromCache, setIsLoadingFromCache] = useState(true)
 
   const pollStartTime = useRef<number | null>(null)
-  const { getCompleted, setCompleted } = useAnalysisCache()
+  const { getAnalysis, setCompleted, setPartial, markAccess } = useAnalysisCache()
 
   const fetchStatus = useCallback(async () => {
     const result = await deduplicatedFetch(
@@ -64,54 +66,68 @@ export function useEventAnalysis(eventId: string, enablePolling: boolean = true)
   }, [eventId])
 
   useEffect(() => {
-    // Check cache first
-    const cached = getCompleted(eventId)
+    // Check cache first - return immediately if complete
+    const cached = getAnalysis(eventId)
     if (cached) {
-      setContent(cached)
-      setStatus({
-        interpretation: 'present',
-        insight: 'present',
-        pattern: 'present',
-        isComplete: true,
-        lastUpdatedAt: null
-      })
-      return
+      // Mark access for LRU tracking
+      markAccess(eventId)
+      setContent(cached.content)
+      setIsLoadingFromCache(false)
+
+      // If complete, don't fetch at all
+      if (cached.isComplete) {
+        setStatus({
+          interpretation: 'present',
+          insight: 'present',
+          pattern: 'present',
+          isComplete: true,
+          lastUpdatedAt: null
+        })
+        return
+      }
+
+      // If incomplete but cached, show cached data while potentially polling
+      // (only for recent events)
     }
 
     let mounted = true
     let timeoutId: ReturnType<typeof setTimeout>
 
     // Initial fetch - ALWAYS runs regardless of enablePolling
+    // PARALLELIZED: Fetch status and content simultaneously
     const initialFetch = async () => {
       if (!mounted) return
 
-      const statusResult = await fetchStatus()
-
-      // OPTIMIZATION: Only fetch content if at least one piece exists
-      // Avoids empty Prisma queries when analysis hasn't started yet
-      const hasAnyContent =
-        statusResult.interpretation === 'present' ||
-        statusResult.insight === 'present' ||
-        statusResult.pattern === 'present'
-
-      let contentResult: AnalysisContent | null = null
-      if (hasAnyContent) {
-        contentResult = await fetchContent()
-      }
+      // Parallel fetch - content returns null gracefully if nothing exists
+      const [statusResult, contentResult] = await Promise.all([
+        fetchStatus(),
+        fetchContent()
+      ])
+      setIsLoadingFromCache(false)
 
       const complete = isAnalysisComplete(statusResult)
 
       if (complete) {
         if (contentResult && mounted) {
+          // Cache as complete
           setCompleted(eventId, contentResult)
         }
         return
       }
 
-      // For old events (>1 day), don't poll if first fetch shows incomplete data
+      // For old events (>1 day), cache as-is (no polling)
       // Analysis is done, we just won't get more data
       if (isOldEvent(statusResult.lastUpdatedAt)) {
+        if (contentResult && mounted) {
+          // Cache partial analysis for old events
+          setPartial(eventId, contentResult)
+        }
         return
+      }
+
+      // Cache partial analysis while polling
+      if (contentResult && mounted) {
+        setPartial(eventId, contentResult)
       }
 
       // Only start polling if enabled AND analysis is incomplete
@@ -124,30 +140,30 @@ export function useEventAnalysis(eventId: string, enablePolling: boolean = true)
     }
 
     // Polling loop - only runs if enablePolling is true
+    // PARALLELIZED: Fetch status and content simultaneously
     const poll = async () => {
       if (!mounted) return
 
-      const statusResult = await fetchStatus()
-
-      // Fetch content to check patterns and insights
-      const hasAnyContent =
-        statusResult.interpretation === 'present' ||
-        statusResult.insight === 'present' ||
-        statusResult.pattern === 'present'
-
-      let contentResult: AnalysisContent | null = null
-      if (hasAnyContent) {
-        contentResult = await fetchContent()
-      }
+      // Parallel fetch
+      const [statusResult, contentResult] = await Promise.all([
+        fetchStatus(),
+        fetchContent()
+      ])
 
       const complete = isAnalysisComplete(statusResult)
 
       if (complete) {
         if (contentResult && mounted) {
+          // Cache as complete
           setCompleted(eventId, contentResult)
           setIsPolling(false)
         }
         return
+      }
+
+      // Update partial cache during polling
+      if (contentResult && mounted) {
+        setPartial(eventId, contentResult)
       }
 
       // Check if we should continue polling
@@ -168,14 +184,16 @@ export function useEventAnalysis(eventId: string, enablePolling: boolean = true)
       timeoutId = setTimeout(poll, interval)
     }
 
-    // Start with initial fetch
-    initialFetch()
+    // Start with initial fetch (unless we have complete cached data)
+    if (!cached?.isComplete) {
+      initialFetch()
+    }
 
     return () => {
       mounted = false
       clearTimeout(timeoutId)
     }
-  }, [eventId, enablePolling, fetchStatus, fetchContent, getCompleted, setCompleted])
+  }, [eventId, enablePolling, fetchStatus, fetchContent, getAnalysis, setCompleted, setPartial, markAccess])
 
   // Compute completion status
   const computedIsComplete = status ? isAnalysisComplete(status) : false
@@ -187,6 +205,7 @@ export function useEventAnalysis(eventId: string, enablePolling: boolean = true)
     patterns: content?.patterns ?? [],
     isPolling,
     isComplete: computedIsComplete,
+    isLoadingFromCache,
     thinkingMessages
   }
 }

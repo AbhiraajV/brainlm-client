@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { Loader2, ArrowRight } from 'lucide-react'
 import { MicButton } from '@/components/ui/MicButton'
 import { HelpModal } from '@/components/ui/HelpModal'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useTypewriterPlaceholder } from '@/components/ui/TypewriterPlaceholder'
 import { createEvent } from '@/server/actions/event.actions'
+import { useEventsCacheStore } from '@/store/events-cache.store'
 
 // Use useLayoutEffect on client, useEffect on server
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
@@ -17,7 +17,9 @@ export function EventInput() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const router = useRouter()
+
+  // Optimistic updates via events cache
+  const { addPendingEvent, confirmEvent, markFailed } = useEventsCacheStore()
 
   // Auto-resize textarea when text changes
   useIsomorphicLayoutEffect(() => {
@@ -60,17 +62,29 @@ export function EventInput() {
     setIsSubmitting(true)
     setError(null)
 
+    // Optimistic update: add to pending immediately
+    const tempId = addPendingEvent(content)
+
+    // Clear input right away for better UX
+    setText('')
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+
     try {
-      await createEvent({ content })
-      setText('')
-      // Reset textarea height
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-      }
-      router.refresh()
+      const result = await createEvent({ content })
+      // Confirm the pending event with server data
+      confirmEvent(tempId, {
+        id: result.event.id,
+        content: result.event.content,
+        createdAt: result.event.createdAt.toISOString(),
+        occurredAt: result.event.occurredAt?.toISOString() ?? null,
+      })
     } catch (err) {
       console.error('Failed to create event:', err)
-      setError('Failed to save. Please try again.')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save. Please try again.'
+      markFailed(tempId, errorMessage)
+      setError(errorMessage)
     } finally {
       setIsSubmitting(false)
     }

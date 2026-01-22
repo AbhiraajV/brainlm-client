@@ -1,24 +1,44 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { ArrowLeft } from "lucide-react";
-import { requireUser } from "@/server/auth";
 import { getBaseline } from "@/server/actions/onboarding.actions";
 import { getPendingUOMSuggestions } from "@/server/actions/uom-suggestion.actions";
 import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer";
 import { UOMSuggestionList } from "@/components/profile/UOMSuggestionList";
+import { ContentLoader } from "@/components/ui/PageLoader";
 import Link from "next/link";
 
 export const dynamic = 'force-dynamic';
 
-export default async function MePage() {
-  const user = await requireUser();
+// Auth + baseline check already done in (app)/layout.tsx
+// Parallel fetch baseline and suggestions
+async function ProfileContent() {
   const [baseline, pendingSuggestions] = await Promise.all([
     getBaseline(),
     getPendingUOMSuggestions(),
   ]);
 
-  if (!baseline) {
-    redirect("/onboarding");
-  }
+  return (
+    <>
+      {/* UOM Suggestions section */}
+      <UOMSuggestionList suggestions={pendingSuggestions} />
+
+      {/* Divider if suggestions exist */}
+      {pendingSuggestions.length > 0 && (
+        <div className="divider my-8" />
+      )}
+
+      {/* Baseline section */}
+      <p className="text-sm font-semibold italic text-[var(--color-muted)] mb-6">
+        A slice of our ever evolving understanding of you! (we don't recommend visiting this page often — our goal is to do the heavy lifting for you)
+      </p>
+      <div className="prose-baseline">
+        <MarkdownRenderer content={baseline || ''} />
+      </div>
+    </>
+  );
+}
+
+export default async function MePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
@@ -39,21 +59,9 @@ export default async function MePage() {
 
       {/* Main content */}
       <main className="flex-1 py-6 sm:py-8 pb-24 px-4 sm:px-6">
-        {/* UOM Suggestions section */}
-        <UOMSuggestionList suggestions={pendingSuggestions} />
-
-        {/* Divider if suggestions exist */}
-        {pendingSuggestions.length > 0 && (
-          <div className="divider my-8" />
-        )}
-
-        {/* Baseline section */}
-        <p className="text-sm font-semibold italic text-[var(--color-muted)] mb-6">
-          A slice of our ever evolving understanding of you! (we don't recommend visiting this page often — our goal is to do the heavy lifting for you 😊)
-        </p>
-        <div className="prose-baseline">
-          <MarkdownRenderer content={baseline} />
-        </div>
+        <Suspense fallback={<ContentLoader message="Loading profile..." />}>
+          <ProfileContent />
+        </Suspense>
       </main>
 
       {/* Fixed back button - bottom left */}

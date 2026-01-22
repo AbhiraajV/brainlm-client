@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { EventFeed, DateRangeFilter, AnalysisStats } from "@/components/event-feed";
-import { requireUser } from "@/server/auth";
 import { TimeGreeting } from "@/components/ui/TimeGreeting";
 import { GoToSessionsButton } from "@/components/sessions";
+import { getAuthAdapter } from "@/server/auth/adapter";
 
 export const dynamic = 'force-dynamic';
 
@@ -17,13 +17,17 @@ const filterLabels: Record<string, string> = {
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
 
+// Auth + baseline check already done in (app)/layout.tsx
 export default async function Page({
     searchParams
 }: {
     searchParams: SearchParams
 }) {
-    const user = await requireUser();
-    const params = await searchParams;
+    // Parallel: Get user and parse params simultaneously (auth already validated by layout)
+    const [user, params] = await Promise.all([
+        getAuthAdapter().getCurrentUser(),
+        searchParams
+    ]);
 
     // Extract date filter from URL params
     const dateFilter = params.from || params.to
@@ -37,7 +41,8 @@ export default async function Page({
     const filterType = typeof params.filter === 'string' ? params.filter : 'today';
     const filterLabel = filterLabels[filterType] || 'today';
 
-    const userName = user.email ? user.email.split('@')[0] : undefined;
+    // User is guaranteed to exist (layout validated auth)
+    const userName = user?.email ? user.email.split('@')[0] : undefined;
 
     return (
         <>

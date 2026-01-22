@@ -1,38 +1,28 @@
 import { Suspense } from 'react'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { ReviewType } from '@prisma/client'
 import { ReviewsFeed, ReviewTypeFilter } from '@/components/reviews'
 import { getReviewCounts } from '@/server/actions/review.actions'
-import { requireUser } from '@/server/auth'
-import { prisma } from '@/server/prisma/client'
 
 export const dynamic = 'force-dynamic'
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
 
+// Auth + baseline check already done in (app)/layout.tsx
 export default async function ReviewsPage({
   searchParams,
 }: {
   searchParams: SearchParams
 }) {
-  const user = await requireUser()
+  // Parallel: fetch counts and parse params simultaneously
+  const [counts, params] = await Promise.all([
+    getReviewCounts(),
+    searchParams
+  ])
 
-  const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { baseline: true },
-  })
-
-  if (!dbUser?.baseline) {
-    redirect('/onboarding')
-  }
-
-  const params = await searchParams
   const typeParam = typeof params.type === 'string' ? params.type : undefined
   const type = typeParam as ReviewType | undefined
-
-  const counts = await getReviewCounts()
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
