@@ -4,18 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate --schema=server/prisma/schema.prisma && next build",
     "start": "next start",
     "lint": "eslint",
     "test:coach": "tsx scripts/test-session-coach.ts",
-    "prod:build": "prisma generate --schema=server/prisma/schema.prisma && next build",
-    "prod:start": "NODE_ENV=production next start",
-    "prod": "npm run prod:build && npm run prod:start"
+    "postinstall": "prisma generate --schema=server/prisma/schema.prisma"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
     "next": "16.1.3",
+    "prisma": "^6.19.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
@@ -24,7 +24,6 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
-    "@prisma/client": "^6.19.2",
     "tsx": "^4.19.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -33,7 +32,6 @@
     "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.3",
-    "prisma": "^6.19.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
