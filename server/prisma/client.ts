@@ -5,18 +5,20 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
+    // Prefer DATABASE_URL (pooled) over DIRECT_URL (direct) for queries
+    // DIRECT_URL should only be used for migrations
+    const url = process.env.DATABASE_URL || process.env.DIRECT_URL;
+
     return new PrismaClient({
         datasources: {
-            db: {
-                url: process.env.DIRECT_URL || process.env.DATABASE_URL
-            }
+            db: { url }
         }
     });
 }
 
 // Skip creation during build when no DATABASE_URL
-const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
+const hasDbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
 
-export const prisma: PrismaClient = url
+export const prisma: PrismaClient = hasDbUrl
     ? (globalForPrisma.prisma ??= createPrismaClient())
     : (undefined as unknown as PrismaClient);
