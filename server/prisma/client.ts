@@ -1,32 +1,34 @@
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
-    prisma: PrismaClient | undefined;
+    _prisma: PrismaClient | undefined;
 };
 
-// Lazy initialization to avoid build-time errors when DATABASE_URL isn't set
-function getPrismaClient(): PrismaClient {
-    if (globalForPrisma.prisma) {
-        return globalForPrisma.prisma;
+function getOrCreatePrismaClient(): PrismaClient {
+    // Return cached instance if exists
+    if (globalForPrisma._prisma) {
+        return globalForPrisma._prisma;
     }
 
+    // Create new client
     const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
-
     const client = new PrismaClient(
         url ? { datasources: { db: { url } } } : undefined
     );
 
-    if (process.env.NODE_ENV !== "production") {
-        globalForPrisma.prisma = client;
-    }
-
+    // Always cache globally to prevent connection leaks
+    globalForPrisma._prisma = client;
     return client;
 }
 
-// Export a getter that lazily initializes
+// Lazy proxy - only creates client when actually used (not at import time)
+// This allows build to succeed without DATABASE_URL
 export const prisma = new Proxy({} as PrismaClient, {
     get(_, prop) {
-        const client = getPrismaClient();
+        // Special handling for Promise detection
+        if (prop === 'then') return undefined;
+
+        const client = getOrCreatePrismaClient();
         const value = client[prop as keyof PrismaClient];
         return typeof value === 'function' ? value.bind(client) : value;
     }
