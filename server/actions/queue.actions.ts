@@ -98,20 +98,15 @@ export async function getQueueHealth(): Promise<QueueHealth> {
         oldestPending,
         stuckJobs
     ] = await Promise.all([
-        // Status breakdown
         prisma.workerJob.groupBy({
             by: ['status'],
             _count: { id: true }
         }),
-
-        // Type breakdown with stats
         prisma.workerJob.groupBy({
             by: ['type'],
             _count: { id: true },
             _avg: { attempts: true }
         }),
-
-        // Recent jobs (last 50)
         prisma.workerJob.findMany({
             take: 50,
             orderBy: { createdAt: 'desc' },
@@ -128,15 +123,11 @@ export async function getQueueHealth(): Promise<QueueHealth> {
                 lockedBy: true
             }
         }),
-
-        // Oldest pending job
         prisma.workerJob.findFirst({
             where: { status: JobStatus.PENDING },
             orderBy: { createdAt: 'asc' },
             select: { createdAt: true }
         }),
-
-        // Stuck jobs (processing for > 5 mins)
         prisma.workerJob.count({
             where: {
                 status: JobStatus.PROCESSING,
