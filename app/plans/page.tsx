@@ -7,6 +7,8 @@ import { FullscreenReader } from '@/components/ui/FullscreenReader';
 import { requireUser } from '@/server/auth';
 import { prisma } from '@/server/prisma/client';
 
+export const dynamic = 'force-dynamic';
+
 export default async function PlansPage() {
   const user = await requireUser();
 

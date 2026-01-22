@@ -5,6 +5,8 @@ import { ReactNode } from "react";
 import { EventInput } from "@/components/event-input";
 import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
 
+export const dynamic = 'force-dynamic';
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
     // HARD GATE: This runs on every request to the main app
     const user = await requireUser();

@@ -7,6 +7,8 @@ import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer";
 import { UOMSuggestionList } from "@/components/profile/UOMSuggestionList";
 import Link from "next/link";
 
+export const dynamic = 'force-dynamic';
+
 export default async function MePage() {
   const user = await requireUser();
   const [baseline, pendingSuggestions] = await Promise.all([

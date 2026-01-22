@@ -1,6 +1,8 @@
 import { requireUser } from "@/server/auth";
 import { ReactNode } from "react";
 
+export const dynamic = 'force-dynamic';
+
 export default async function OnboardingLayout({ children }: { children: ReactNode }) {
   // Require authentication - redirects to /login if not authenticated
   await requireUser();

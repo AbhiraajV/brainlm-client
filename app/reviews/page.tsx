@@ -8,6 +8,8 @@ import { getReviewCounts } from '@/server/actions/review.actions'
 import { requireUser } from '@/server/auth'
 import { prisma } from '@/server/prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
 
 export default async function ReviewsPage({

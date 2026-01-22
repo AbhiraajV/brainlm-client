@@ -4,6 +4,8 @@ import { requireUser } from "@/server/auth";
 import { TimeGreeting } from "@/components/ui/TimeGreeting";
 import { GoToSessionsButton } from "@/components/sessions";
 
+export const dynamic = 'force-dynamic';
+
 const filterLabels: Record<string, string> = {
     all: 'all time',
     today: 'today',
