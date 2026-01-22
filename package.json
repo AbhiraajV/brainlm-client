@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:coach": "tsx scripts/test-session-coach.ts"
+    "test:coach": "tsx scripts/test-session-coach.ts",
+    "prod:build": "prisma generate --schema=server/prisma/schema.prisma && next build",
+    "prod:start": "NODE_ENV=production next start",
+    "prod": "npm run prod:build && npm run prod:start"
   },
   "dependencies": {
     "clsx": "^2.1.1",
