@@ -2,36 +2,28 @@ import { requireUser } from '@/server/auth'
 import { prisma } from '@/server/prisma/client'
 import { EventList } from './EventList'
 
-export type DateFilter = {
-  from?: string
-  to?: string
-}
-
+/**
+ * EventFeed - Server component that fetches initial events to seed the cache.
+ *
+ * Progressive caching strategy:
+ * - Server always returns recent events (no date filter) to seed the cache
+ * - Client-side EventList handles date filtering locally from cache
+ * - When a date range isn't cached, EventList fetches it and adds to cache
+ * - Subsequent visits to the same range are instant (local filtering)
+ */
 export async function EventFeed({
   limit = 20,
-  dateFilter
 }: {
   limit?: number
-  dateFilter?: DateFilter
 }) {
   const user = await requireUser()
 
-  // Build date filter conditions
-  const dateConditions: Record<string, Date> = {}
-  if (dateFilter?.from) {
-    dateConditions.gte = new Date(dateFilter.from)
-  }
-  if (dateFilter?.to) {
-    dateConditions.lte = new Date(dateFilter.to)
-  }
-
-  // Cursor-based pagination: fetch initial page
+  // Fetch recent events to seed the cache
+  // No date filter - we always fetch the most recent events
+  // Date filtering happens client-side from the cache
   const events = await prisma.event.findMany({
     where: {
       userId: user.id,
-      ...(Object.keys(dateConditions).length > 0 && {
-        occurredAt: dateConditions
-      })
     },
     orderBy: { createdAt: 'desc' },
     take: limit + 1, // Fetch one extra to determine hasMore
@@ -52,7 +44,6 @@ export async function EventFeed({
       initialEvents={displayEvents}
       hasMore={hasMore}
       initialCursor={nextCursor}
-      dateFilter={dateFilter}
     />
   )
 }
