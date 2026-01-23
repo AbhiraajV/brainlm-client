@@ -1,28 +1,13 @@
-import { Suspense } from 'react'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
 import { ReviewType } from '@prisma/client'
 import { ReviewsFeed, ReviewTypeFilter } from '@/components/reviews'
-import { getReviewCounts } from '@/server/actions/review.actions'
+import { BackButton } from '@/components/ui/BackButton'
 
-export const dynamic = 'force-dynamic'
-
-type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>
-
-// Auth + baseline check already done in (app)/layout.tsx
-export default async function ReviewsPage({
-  searchParams,
-}: {
-  searchParams: SearchParams
-}) {
-  // Parallel: fetch counts and parse params simultaneously
-  const [counts, params] = await Promise.all([
-    getReviewCounts(),
-    searchParams
-  ])
-
-  const typeParam = typeof params.type === 'string' ? params.type : undefined
-  const type = typeParam as ReviewType | undefined
+// Client page with local state for type filter (no useSearchParams = no Suspense needed)
+export default function ReviewsPage() {
+  const [type, setType] = useState<ReviewType | undefined>(undefined)
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
@@ -53,46 +38,15 @@ export default async function ReviewsPage({
           </p>
 
           {/* Type filter */}
-          <Suspense fallback={<div className="h-10" />}>
-            <ReviewTypeFilter counts={counts} />
-          </Suspense>
+          <ReviewTypeFilter value={type} onChange={setType} />
 
           {/* Reviews feed */}
-          <Suspense
-            fallback={
-              <div className="flex flex-col items-center justify-center py-16 px-5">
-                <div className="w-8 h-8 border-2 border-[var(--color-line)] border-t-[var(--color-accent)] rounded-full animate-spin" />
-                <p className="text-sm text-[var(--color-muted)] mt-4">
-                  Loading reviews...
-                </p>
-              </div>
-            }
-          >
-            <ReviewsFeed type={type} limit={20} />
-          </Suspense>
+          <ReviewsFeed type={type} limit={20} />
         </div>
       </main>
 
-      {/* Fixed back button - bottom left */}
-      <Link
-        href="/"
-        className="
-          fixed bottom-6 left-6
-          z-20
-          w-12 h-12
-          flex items-center justify-center
-          bg-[var(--color-surface)]
-          border border-[var(--color-line)]
-          rounded-full
-          shadow-lg
-          transition-all duration-200
-          hover:shadow-xl hover:border-[var(--color-accent)]
-          active:scale-95
-        "
-        aria-label="Go back to home"
-      >
-        <ArrowLeft className="w-5 h-5 text-[var(--color-text)]" />
-      </Link>
+      {/* Fixed back button - bottom left (uses browser history for instant nav) */}
+      <BackButton />
     </div>
   )
 }

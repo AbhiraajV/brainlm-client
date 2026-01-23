@@ -1,7 +1,5 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback } from 'react'
 import { ReviewType } from '@prisma/client'
 
 type FilterOption = {
@@ -18,6 +16,8 @@ const filterOptions: FilterOption[] = [
 ]
 
 interface ReviewTypeFilterProps {
+  value?: ReviewType
+  onChange: (value: ReviewType | undefined) => void
   counts?: {
     total: number
     daily: number
@@ -26,22 +26,12 @@ interface ReviewTypeFilterProps {
   }
 }
 
-export function ReviewTypeFilter({ counts }: ReviewTypeFilterProps) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+export function ReviewTypeFilter({ value, onChange, counts }: ReviewTypeFilterProps) {
+  const currentFilter = value || 'ALL'
 
-  const currentFilter = (searchParams.get('type') as ReviewType | null) || 'ALL'
-
-  const handleFilterChange = useCallback(
-    (value: ReviewType | 'ALL') => {
-      if (value === 'ALL') {
-        router.push('/reviews', { scroll: false })
-      } else {
-        router.push(`/reviews?type=${value}`, { scroll: false })
-      }
-    },
-    [router]
-  )
+  const handleFilterChange = (filterValue: ReviewType | 'ALL') => {
+    onChange(filterValue === 'ALL' ? undefined : filterValue)
+  }
 
   const getCount = (value: ReviewType | 'ALL'): number | undefined => {
     if (!counts) return undefined
