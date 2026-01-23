@@ -1,26 +1,15 @@
-import { redirect } from "next/navigation";
-import { requireUser } from "@/server/auth";
-import { prisma } from "@/server/prisma/client";
 import { ReactNode } from "react";
 import { EventInput } from "@/components/event-input";
 import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
 
-export const dynamic = 'force-dynamic';
+// No force-dynamic - this layout is now instant
+// Auth and baseline checks are handled by middleware
 
-export default async function AppLayout({ children }: { children: ReactNode }) {
-    // HARD GATE: Auth check required on every request
-    // OPTIMIZED: Run auth and baseline check in parallel
-    const user = await requireUser();
-
-    // Check baseline in parallel (user.id available after requireUser resolves)
-    const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { baseline: true },
-    });
-
-    if (!dbUser?.baseline) {
-        redirect("/onboarding");
-    }
+export default function AppLayout({ children }: { children: ReactNode }) {
+    // Middleware already validated:
+    // 1. User is authenticated (has valid session cookie)
+    // 2. User has completed onboarding (session.hasBaseline === true)
+    // No database calls needed here!
 
     return (
         <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
@@ -53,8 +42,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 px-2 sm:px-3
                 pb-6 pt-4
                 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)] to-transparent
+                pointer-events-none
             ">
-                <EventInput />
+                <div className="pointer-events-auto">
+                    <EventInput />
+                </div>
             </div>
 
             {/* Bottom right navigation */}
