@@ -56,24 +56,33 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
     // Mark as generating and trigger LLM call
     setEventLlmComment(sessionId, eventId, null, 'generating');
 
+    // Get FRESH session from store (after addEventDraft updated it)
+    const freshSession = useSessionsStore.getState().sessions.find(s => s.id === sessionId);
+    if (!freshSession) return;
+
     // Get domain knowledge from brain transfer
-    const domainKnowledge = getDomainKnowledge(session.understanding?.content);
-    const guide = session.understanding?.guide || 'Coach';
-    const goal = session.sessionContext || session.understanding?.inferredGoal || '';
+    const domainKnowledge = getDomainKnowledge(freshSession.understanding?.content);
+    const guide = freshSession.understanding?.guide || 'Coach';
+    const goal = freshSession.sessionContext || freshSession.understanding?.inferredGoal || '';
 
-    // Get previous events (all events currently in the session)
-    const previousEvents = session.events.map(e => ({
-      content: e.content,
-      createdAt: e.createdAt,
-    }));
+    // Get previous events (all events BEFORE the one we just added)
+    const previousEvents = freshSession.events
+      .filter(e => e.id !== eventId)
+      .map(e => ({
+        content: e.content,
+        createdAt: e.createdAt,
+      }));
 
-    // Get today's events and yesterday's review from knowledge
-    const todaysEvents = session.knowledge?.todaysEvents?.map(e => ({
-      content: e.content,
-      occurredAt: e.occurredAt,
-    }));
-    const yesterdaysReview = session.knowledge?.yesterdaysReview
-      ? { summary: session.knowledge.yesterdaysReview.summary, periodKey: session.knowledge.yesterdaysReview.periodKey }
+    // Get today's events - filter to only include events from TODAY
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const todaysEvents = freshSession.knowledge?.todaysEvents
+      ?.filter(e => e.occurredAt.startsWith(today))
+      ?.map(e => ({
+        content: e.content,
+        occurredAt: e.occurredAt,
+      }));
+    const yesterdaysReview = freshSession.knowledge?.yesterdaysReview
+      ? { summary: freshSession.knowledge.yesterdaysReview.summary, periodKey: freshSession.knowledge.yesterdaysReview.periodKey }
       : undefined;
 
     try {
@@ -82,7 +91,7 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
         eventId,
         eventContent,
         previousEvents,
-        session.title,
+        freshSession.title,
         goal,
         guide,
         domainKnowledge,
