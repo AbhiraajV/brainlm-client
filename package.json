@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:coach": "tsx scripts/test-session-coach.ts",
+    "test:events": "tsx scripts/test-session-events.ts",
     "postinstall": "prisma generate --schema=server/prisma/schema.prisma"
   },
   "dependencies": {
