@@ -2,6 +2,7 @@
 
 import { requireUser } from "@/server/auth";
 import { prisma } from "@/server/prisma/client";
+import { markBaselineComplete } from "@/server/auth/adapter";
 import type { AllAnswers } from "@/lib/onboarding/types";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -310,6 +311,10 @@ export async function saveBaseline(answers: AllAnswers): Promise<{ success: bool
         baseline: result.markdown,
       },
     });
+
+    // Mark baseline as complete in session cookie
+    // This allows middleware to skip DB check on every navigation
+    await markBaselineComplete();
 
     return { success: true };
   } catch (error) {

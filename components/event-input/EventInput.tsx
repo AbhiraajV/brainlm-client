@@ -62,8 +62,11 @@ export function EventInput() {
     setIsSubmitting(true)
     setError(null)
 
-    // Optimistic update: add to pending immediately
-    const tempId = addPendingEvent(content)
+    // Capture timestamp at the moment of submission (user's local time)
+    const occurredAt = new Date()
+
+    // Optimistic update: add to pending immediately with the captured timestamp
+    const tempId = addPendingEvent(content, occurredAt)
 
     // Clear input right away for better UX
     setText('')
@@ -72,7 +75,7 @@ export function EventInput() {
     }
 
     try {
-      const result = await createEvent({ content })
+      const result = await createEvent({ content, occurredAt })
       // Confirm the pending event with server data
       confirmEvent(tempId, {
         id: result.event.id,

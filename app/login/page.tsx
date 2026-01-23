@@ -1,4 +1,17 @@
+'use client'
+
+import { loginAction } from './actions'
+import { useTransition } from 'react'
+
 export default function LoginPage() {
+    const [isPending, startTransition] = useTransition()
+
+    function handleLogin() {
+        startTransition(async () => {
+            await loginAction()
+        })
+    }
+
     return (
         <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg)] container-padding">
             <div className="
@@ -25,20 +38,25 @@ export default function LoginPage() {
                 </p>
 
                 {/* Sign in button - ghost style per design language */}
-                <button className="
-                    w-full
-                    py-3 px-4
-                    text-sm font-medium
-                    text-[var(--color-text)]
-                    bg-[var(--color-bg)]
-                    border border-[var(--color-line)]
-                    rounded-[var(--radius-sm)]
-                    transition-all duration-200
-                    hover:border-[var(--color-accent)]
-                    hover:bg-[var(--color-accent)]/5
-                    focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[var(--color-surface)]
-                ">
-                    Continue with Email
+                <button
+                    onClick={handleLogin}
+                    disabled={isPending}
+                    className="
+                        w-full
+                        py-3 px-4
+                        text-sm font-medium
+                        text-[var(--color-text)]
+                        bg-[var(--color-bg)]
+                        border border-[var(--color-line)]
+                        rounded-[var(--radius-sm)]
+                        transition-all duration-200
+                        hover:border-[var(--color-accent)]
+                        hover:bg-[var(--color-accent)]/5
+                        focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[var(--color-surface)]
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                    "
+                >
+                    {isPending ? 'Signing in...' : 'Continue with Email'}
                 </button>
 
                 {/* Subtle footer */}

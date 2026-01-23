@@ -1,12 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import {
   useDailyDataStore,
-  selectReviews,
-  selectDailyPlans,
-  selectUOMSuggestions,
-  selectBaseline,
   type CachedReview,
   type CachedDailyPlan,
   type CachedUOMSuggestion,
@@ -16,6 +12,33 @@ import { getDailyPlansPage } from '@/server/actions/daily-plan.actions'
 import { getPendingUOMSuggestions } from '@/server/actions/uom-suggestion.actions'
 import { useHydrated } from '@/hooks/useHydrated'
 import { ReviewType } from '@prisma/client'
+import { getUserTimezone, getLocalDayBoundaries } from '@/lib/timezone'
+import { isFetchedToday } from '@/lib/cache-utils'
+
+/**
+ * Smart caching helpers for daily data.
+ * Key insight: Reviews and plans are generated once per day.
+ * Data is fresh until midnight, then needs refetch.
+ */
+
+function getTodayDateKey(): string {
+  const tz = getUserTimezone()
+  const { start } = getLocalDayBoundaries(tz, 0)
+  // Return YYYY-MM-DD format for comparison
+  return start.toISOString().slice(0, 10)
+}
+
+function hasTodaysReview(reviews: CachedReview[]): boolean {
+  const todayKey = getTodayDateKey()
+  return reviews.some(r =>
+    r.type === 'DAILY' && r.periodKey.startsWith(todayKey)
+  )
+}
+
+function hasTodaysPlan(plans: CachedDailyPlan[]): boolean {
+  const todayKey = getTodayDateKey()
+  return plans.some(p => p.targetDate.startsWith(todayKey))
+}
 
 /**
  * Hook for reviews with stale-while-revalidate pattern.
@@ -33,12 +56,17 @@ export function useReviews(type?: ReviewType) {
     isReviewsStale,
   } = useDailyDataStore()
 
-  const cachedReviews = useDailyDataStore(selectReviews)
+  // Derive cached reviews from primitive store data using useMemo
+  const cachedReviews = useMemo(() => {
+    return reviews.itemIds
+      .map(id => reviews.items[id])
+      .filter(Boolean)
+  }, [reviews.itemIds, reviews.items])
 
   // Filter by type if specified
-  const filteredReviews = type
-    ? cachedReviews.filter(r => r.type === type)
-    : cachedReviews
+  const filteredReviews = useMemo(() => {
+    return type ? cachedReviews.filter(r => r.type === type) : cachedReviews
+  }, [cachedReviews, type])
 
   const fetchReviews = useCallback(async (cursor?: string) => {
     try {
@@ -71,11 +99,17 @@ export function useReviews(type?: ReviewType) {
     }
   }, [type, setReviews, appendReviews])
 
-  // Stale-while-revalidate: show cached data immediately, fetch if stale
+  // Smart caching: only fetch if we haven't fetched today
+  // Reviews are generated once daily - fresh until midnight
   useEffect(() => {
     if (!hydrated || hasFetched.current) return
 
-    const shouldFetch = isReviewsStale() || cachedReviews.length === 0
+    // Check if we fetched today (midnight boundary)
+    const fetchedToday = isFetchedToday(reviews.lastFetchedAt)
+
+    // Skip fetch if we already fetched today OR we have today's data
+    const hasTodaysData = hasTodaysReview(cachedReviews)
+    const shouldFetch = !fetchedToday && !hasTodaysData && cachedReviews.length === 0
 
     if (shouldFetch) {
       setIsRefreshing(true)
@@ -87,7 +121,7 @@ export function useReviews(type?: ReviewType) {
     } else {
       hasFetched.current = true
     }
-  }, [hydrated, isReviewsStale, cachedReviews.length, fetchReviews])
+  }, [hydrated, reviews.lastFetchedAt, cachedReviews, fetchReviews])
 
   const loadMore = useCallback(async () => {
     if (!reviews.hasMore || !reviews.nextCursor) return
@@ -133,7 +167,12 @@ export function useDailyPlans() {
     isDailyPlansStale,
   } = useDailyDataStore()
 
-  const cachedPlans = useDailyDataStore(selectDailyPlans)
+  // Derive cached plans from primitive store data using useMemo
+  const cachedPlans = useMemo(() => {
+    return dailyPlans.itemIds
+      .map(id => dailyPlans.items[id])
+      .filter(Boolean)
+  }, [dailyPlans.itemIds, dailyPlans.items])
 
   const fetchPlans = useCallback(async (cursor?: string) => {
     try {
@@ -163,11 +202,17 @@ export function useDailyPlans() {
     }
   }, [setDailyPlans, appendDailyPlans])
 
-  // Stale-while-revalidate
+  // Smart caching: only fetch if we haven't fetched today
+  // Plans are generated once daily - fresh until midnight
   useEffect(() => {
     if (!hydrated || hasFetched.current) return
 
-    const shouldFetch = isDailyPlansStale() || cachedPlans.length === 0
+    // Check if we fetched today (midnight boundary)
+    const fetchedToday = isFetchedToday(dailyPlans.lastFetchedAt)
+
+    // Skip fetch if we already fetched today OR we have today's data
+    const hasTodaysData = hasTodaysPlan(cachedPlans)
+    const shouldFetch = !fetchedToday && !hasTodaysData && cachedPlans.length === 0
 
     if (shouldFetch) {
       setIsRefreshing(true)
@@ -179,7 +224,7 @@ export function useDailyPlans() {
     } else {
       hasFetched.current = true
     }
-  }, [hydrated, isDailyPlansStale, cachedPlans.length, fetchPlans])
+  }, [hydrated, dailyPlans.lastFetchedAt, cachedPlans, fetchPlans])
 
   const loadMore = useCallback(async () => {
     if (!dailyPlans.hasMore || !dailyPlans.nextCursor) return
@@ -219,13 +264,15 @@ export function useUOMSuggestions() {
   const hasFetched = useRef(false)
 
   const {
+    uomSuggestions,
     setUOMSuggestions,
     updateUOMSuggestion,
     removeUOMSuggestion,
     isUOMSuggestionsStale,
   } = useDailyDataStore()
 
-  const cachedSuggestions = useDailyDataStore(selectUOMSuggestions)
+  // Access cached suggestions directly from store
+  const cachedSuggestions = uomSuggestions.items
 
   const fetchSuggestions = useCallback(async () => {
     try {
@@ -248,11 +295,13 @@ export function useUOMSuggestions() {
     }
   }, [setUOMSuggestions])
 
-  // Stale-while-revalidate
+  // Smart caching: only fetch if we haven't fetched today
   useEffect(() => {
     if (!hydrated || hasFetched.current) return
 
-    const shouldFetch = isUOMSuggestionsStale()
+    // Check if we fetched today (midnight boundary)
+    const fetchedToday = isFetchedToday(uomSuggestions.lastFetchedAt)
+    const shouldFetch = !fetchedToday
 
     if (shouldFetch) {
       setIsRefreshing(true)
@@ -264,7 +313,7 @@ export function useUOMSuggestions() {
     } else {
       hasFetched.current = true
     }
-  }, [hydrated, isUOMSuggestionsStale, fetchSuggestions])
+  }, [hydrated, uomSuggestions.lastFetchedAt, fetchSuggestions])
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true)
@@ -317,7 +366,8 @@ export function useBaseline() {
     isBaselineStale,
   } = useDailyDataStore()
 
-  const cachedBaseline = useDailyDataStore(selectBaseline)
+  // Access cached baseline directly from store
+  const cachedBaseline = baseline.content
 
   // Note: You'll need to create a getBaseline server action
   // For now, this is a placeholder that can be filled in
@@ -333,11 +383,13 @@ export function useBaseline() {
     // }
   }, [setBaseline])
 
-  // Stale-while-revalidate
+  // Smart caching: only fetch if we haven't fetched today and have no data
   useEffect(() => {
     if (!hydrated || hasFetched.current) return
 
-    const shouldFetch = isBaselineStale() && cachedBaseline === null
+    // Check if we fetched today (midnight boundary)
+    const fetchedToday = isFetchedToday(baseline.lastFetchedAt)
+    const shouldFetch = !fetchedToday && cachedBaseline === null
 
     if (shouldFetch) {
       setIsRefreshing(true)
@@ -349,7 +401,7 @@ export function useBaseline() {
     } else {
       hasFetched.current = true
     }
-  }, [hydrated, isBaselineStale, cachedBaseline, fetchBaseline])
+  }, [hydrated, baseline.lastFetchedAt, cachedBaseline, fetchBaseline])
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true)
@@ -389,9 +441,16 @@ export function useAllDailyData() {
     isUOMSuggestionsStale,
   } = useDailyDataStore()
 
-  const cachedReviews = useDailyDataStore(selectReviews)
-  const cachedPlans = useDailyDataStore(selectDailyPlans)
-  const cachedSuggestions = useDailyDataStore(selectUOMSuggestions)
+  // Derive cached data from primitive store data using useMemo
+  const cachedReviews = useMemo(() => {
+    return reviews.itemIds.map(id => reviews.items[id]).filter(Boolean)
+  }, [reviews.itemIds, reviews.items])
+
+  const cachedPlans = useMemo(() => {
+    return dailyPlans.itemIds.map(id => dailyPlans.items[id]).filter(Boolean)
+  }, [dailyPlans.itemIds, dailyPlans.items])
+
+  const cachedSuggestions = uomSuggestions.items
 
   // PARALLEL fetch all data types
   const fetchAll = useCallback(async () => {
@@ -452,14 +511,28 @@ export function useAllDailyData() {
     }
   }, [setReviews, setDailyPlans, setUOMSuggestions])
 
-  // Stale-while-revalidate: fetch if ANY data type is stale
+  // Smart caching: only fetch if we haven't fetched today
+  // Data is fresh until midnight
   useEffect(() => {
     if (!hydrated || hasFetched.current) return
 
-    const anyStale = isReviewsStale() || isDailyPlansStale() || isUOMSuggestionsStale()
-    const anyEmpty = cachedReviews.length === 0 && cachedPlans.length === 0
+    // Check if we fetched today for each type
+    const reviewsFetchedToday = isFetchedToday(reviews.lastFetchedAt)
+    const plansFetchedToday = isFetchedToday(dailyPlans.lastFetchedAt)
+    const uomFetchedToday = isFetchedToday(uomSuggestions.lastFetchedAt)
 
-    if (anyStale || anyEmpty) {
+    // Also check if we have today's actual data
+    const hasTodaysReviewData = hasTodaysReview(cachedReviews)
+    const hasTodaysPlanData = hasTodaysPlan(cachedPlans)
+
+    // Only fetch if we haven't fetched today AND don't have today's data
+    const needsReviewFetch = !reviewsFetchedToday && !hasTodaysReviewData && cachedReviews.length === 0
+    const needsPlanFetch = !plansFetchedToday && !hasTodaysPlanData && cachedPlans.length === 0
+    const needsUOMFetch = !uomFetchedToday
+
+    const shouldFetch = needsReviewFetch || needsPlanFetch || needsUOMFetch
+
+    if (shouldFetch) {
       setIsRefreshing(true)
       fetchAll()
         .finally(() => {
@@ -469,7 +542,7 @@ export function useAllDailyData() {
     } else {
       hasFetched.current = true
     }
-  }, [hydrated, isReviewsStale, isDailyPlansStale, isUOMSuggestionsStale, cachedReviews.length, cachedPlans.length, fetchAll])
+  }, [hydrated, reviews.lastFetchedAt, dailyPlans.lastFetchedAt, uomSuggestions.lastFetchedAt, cachedReviews, cachedPlans, fetchAll])
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true)

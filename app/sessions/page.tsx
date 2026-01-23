@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Plus, ArrowLeft, Sparkles, Hand } from 'lucide-react';
+import { Plus, Sparkles, Hand } from 'lucide-react';
 import { useSessionsStore, selectSessions } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
 import { SessionList, EmptyState } from '@/components/sessions';
 import { SessionModal } from '@/components/sessions/SessionModal';
+import { BackButton } from '@/components/ui/BackButton';
 
 const COMPLETION_MODE_KEY = 'brainlm:session-completion-mode';
 
@@ -182,26 +182,8 @@ export default function SessionsPage() {
           <div className="max-w-2xl mx-auto">{mainContent}</div>
         </main>
 
-        {/* Fixed back button - bottom left */}
-        <Link
-          href="/"
-          className="
-            fixed bottom-6 left-6
-            z-20
-            w-12 h-12
-            flex items-center justify-center
-            bg-[var(--color-surface)]
-            border border-[var(--color-line)]
-            rounded-full
-            shadow-lg
-            transition-all duration-200
-            hover:shadow-xl hover:border-[var(--color-accent)]
-            active:scale-95
-          "
-          aria-label="Go back to home"
-        >
-          <ArrowLeft className="w-5 h-5 text-[var(--color-text)]" />
-        </Link>
+        {/* Fixed back button - bottom left (uses browser history for instant nav) */}
+        <BackButton />
 
         {/* Fixed New button - bottom right */}
         <button

@@ -47,6 +47,24 @@ export function isStale(lastFetchedAt: string | null, thresholdMs: number = 24 *
   return Date.now() - lastFetched > thresholdMs
 }
 
+/**
+ * Check if data was fetched today (in user's local timezone).
+ * Daily data is fresh until midnight, then stale.
+ */
+export function isFetchedToday(lastFetchedAt: string | null): boolean {
+  if (!lastFetchedAt) return false
+
+  const lastFetched = new Date(lastFetchedAt)
+  const now = new Date()
+
+  // Compare year, month, and day in local timezone
+  return (
+    lastFetched.getFullYear() === now.getFullYear() &&
+    lastFetched.getMonth() === now.getMonth() &&
+    lastFetched.getDate() === now.getDate()
+  )
+}
+
 // Check if an event is recent (less than 1 day old)
 export function isRecentEvent(createdAt: string | Date): boolean {
   const created = typeof createdAt === 'string' ? new Date(createdAt).getTime() : createdAt.getTime()
@@ -68,6 +86,7 @@ export const CACHE_CONSTANTS = {
   MAX_EVENTS: 200,           // Maximum events to keep in cache
   MAX_ANALYSIS: 200,         // Maximum analysis entries to keep
   STALE_THRESHOLD_MS: 24 * 60 * 60 * 1000,  // 24 hours
+  DAILY_STALE_THRESHOLD_MS: 24 * 60 * 60 * 1000,  // Daily data stays fresh for 24 hours
   RECENT_EVENT_THRESHOLD_MS: 24 * 60 * 60 * 1000,  // 1 day for polling
   ANALYSIS_POLL_TIMEOUT_MS: 150_000,  // 2.5 minutes
 } as const
@@ -91,4 +110,37 @@ export function evictOldest<T extends { createdAt: string }>(
 // Check if a string looks like a temp ID
 export function isTempId(id: string): boolean {
   return id.startsWith('temp_')
+}
+
+/**
+ * Synchronously read cached data from localStorage.
+ * Use this for instant cache-first rendering before React hydration.
+ * Returns null if no valid cache exists or on SSR.
+ */
+export function readCacheSync<T>(storageKey: string): T | null {
+  try {
+    if (typeof window === 'undefined') return null
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Zustand persist wraps data in { state: {...}, version: number }
+    return parsed?.state ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if cached data is fresh (not stale).
+ * Works with Zustand persist format.
+ */
+export function isCacheFresh(
+  storageKey: string,
+  lastFetchedAtKey: string,
+  thresholdMs: number = CACHE_CONSTANTS.STALE_THRESHOLD_MS
+): boolean {
+  const cache = readCacheSync<Record<string, unknown>>(storageKey)
+  if (!cache) return false
+  const lastFetchedAt = cache[lastFetchedAtKey] as string | null
+  return !isStale(lastFetchedAt, thresholdMs)
 }

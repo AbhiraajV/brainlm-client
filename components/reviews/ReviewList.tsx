@@ -1,11 +1,17 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useMemo } from 'react'
 import { ReviewType } from '@prisma/client'
 import { ReviewCard, ReviewCardData } from './ReviewCard'
 import { FullscreenReader } from '@/components/ui/FullscreenReader'
 import { useUiStore } from '@/store/ui.store'
-import { getReviewsByType } from '@/server/actions/review.actions'
+import { useReviews } from '@/hooks/useDailyData'
+import { useHydrated } from '@/hooks/useHydrated'
+import { useDailyDataStore, type CachedReview } from '@/store/daily-data.store'
+import { readCacheSync, isStale, CACHE_CONSTANTS } from '@/lib/cache-utils'
+
+// Storage key must match daily-data.store.ts
+const STORAGE_KEY = 'brainlm:daily-data'
 
 interface ReviewListProps {
   initialReviews: ReviewCardData[]
@@ -14,35 +20,131 @@ interface ReviewListProps {
   typeFilter?: ReviewType
 }
 
+/**
+ * Read cached reviews synchronously from localStorage.
+ * This enables instant cache-first rendering before React hydration.
+ */
+function getInitialCachedReviews(typeFilter?: ReviewType): { reviews: CachedReview[]; isFresh: boolean } {
+  const cache = readCacheSync<{
+    reviews: { items: Record<string, CachedReview>; itemIds: string[]; lastFetchedAt: string | null }
+  }>(STORAGE_KEY)
+
+  if (!cache?.reviews?.itemIds?.length) {
+    return { reviews: [], isFresh: false }
+  }
+
+  const allReviews = cache.reviews.itemIds
+    .map(id => cache.reviews.items[id])
+    .filter(Boolean)
+
+  const filteredReviews = typeFilter
+    ? allReviews.filter(r => r.type === typeFilter)
+    : allReviews
+
+  const isFresh = !isStale(cache.reviews.lastFetchedAt, CACHE_CONSTANTS.STALE_THRESHOLD_MS)
+
+  return { reviews: filteredReviews, isFresh }
+}
+
 export function ReviewList({
   initialReviews,
   hasMore: initialHasMore,
   initialCursor,
   typeFilter,
 }: ReviewListProps) {
-  const [reviews, setReviews] = useState(initialReviews)
-  const [cursor, setCursor] = useState<string | undefined>(initialCursor)
-  const [hasMore, setHasMore] = useState(initialHasMore)
-  const [loading, setLoading] = useState(false)
+  const hydrated = useHydrated()
+  const hasSeedCache = useRef(false)
 
   const { openFullscreenReader } = useUiStore()
+  const { setReviews: setCachedReviews } = useDailyDataStore()
 
-  // Reset state when initial data changes (e.g., filter changed)
+  // Use cached reviews with stale-while-revalidate
+  const {
+    reviews: cachedReviews,
+    isRefreshing,
+    hasMore: cacheHasMore,
+    loadMore: loadMoreFromCache,
+  } = useReviews(typeFilter)
+
+  // Read cache synchronously on first render (before hydration)
+  // This enables instant display of cached data
+  const initialCache = useMemo(() => getInitialCachedReviews(typeFilter), [typeFilter])
+
+  // Seed cache from server data (once) - only if cache was empty
   useEffect(() => {
-    setReviews(initialReviews)
-    setCursor(initialCursor)
-    setHasMore(initialHasMore)
-  }, [initialReviews, initialCursor, initialHasMore])
+    if (hasSeedCache.current) return
+    if (initialReviews.length === 0) return
+    if (initialCache.reviews.length > 0) return // Already has cached data
+
+    const reviewsForCache: CachedReview[] = initialReviews.map(r => ({
+      id: r.id,
+      type: r.type,
+      periodKey: r.periodKey,
+      periodStart: r.periodStart.toISOString(),
+      periodEnd: r.periodEnd.toISOString(),
+      summary: r.summary,
+      renderedMarkdown: r.renderedMarkdown,
+      eventIds: r.eventIds,
+      interpretationIds: r.interpretationIds,
+      patternIds: r.patternIds,
+      insightIds: r.insightIds,
+      createdAt: r.createdAt.toISOString(),
+    }))
+    setCachedReviews(reviewsForCache, initialCursor, initialHasMore)
+    hasSeedCache.current = true
+  }, [initialReviews, initialCache.reviews.length, setCachedReviews, initialCursor, initialHasMore])
+
+  // Cache-first rendering strategy:
+  // 1. If we have fresh cached data, show it immediately (even before hydration)
+  // 2. After hydration, show the Zustand store data (which gets updated by background refresh)
+  // 3. Fall back to server data only if cache is empty
+  const displayReviews: ReviewCardData[] = useMemo(() => {
+    // After hydration: use Zustand store (live updates)
+    if (hydrated && cachedReviews.length > 0) {
+      return cachedReviews.map(r => ({
+        id: r.id,
+        type: r.type,
+        periodKey: r.periodKey,
+        periodStart: new Date(r.periodStart),
+        periodEnd: new Date(r.periodEnd),
+        summary: r.summary,
+        renderedMarkdown: r.renderedMarkdown ?? '',
+        eventIds: r.eventIds,
+        interpretationIds: r.interpretationIds,
+        patternIds: r.patternIds,
+        insightIds: r.insightIds,
+        createdAt: new Date(r.createdAt),
+      }))
+    }
+
+    // Before hydration: use sync cache read (instant display)
+    if (initialCache.reviews.length > 0) {
+      return initialCache.reviews.map(r => ({
+        id: r.id,
+        type: r.type,
+        periodKey: r.periodKey,
+        periodStart: new Date(r.periodStart),
+        periodEnd: new Date(r.periodEnd),
+        summary: r.summary,
+        renderedMarkdown: r.renderedMarkdown ?? '',
+        eventIds: r.eventIds,
+        interpretationIds: r.interpretationIds,
+        patternIds: r.patternIds,
+        insightIds: r.insightIds,
+        createdAt: new Date(r.createdAt),
+      }))
+    }
+
+    // Fallback: server-provided data
+    return initialReviews
+  }, [hydrated, cachedReviews, initialCache.reviews, initialReviews])
+
+  const hasMore = hydrated ? cacheHasMore : initialHasMore
+  const loading = isRefreshing
 
   const loadMore = useCallback(async () => {
-    if (loading || !hasMore || !cursor) return
-    setLoading(true)
-    const result = await getReviewsByType({ type: typeFilter, cursor, limit: 20 })
-    setReviews((prev) => [...prev, ...result.reviews])
-    setHasMore(!!result.nextCursor)
-    setCursor(result.nextCursor)
-    setLoading(false)
-  }, [loading, hasMore, cursor, typeFilter])
+    await loadMoreFromCache()
+  }, [loadMoreFromCache])
 
   const handleCardClick = (review: ReviewCardData) => {
     openFullscreenReader('review', {
@@ -56,7 +158,7 @@ export function ReviewList({
     })
   }
 
-  if (reviews.length === 0) {
+  if (displayReviews.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-5">
         <div className="w-12 h-12 rounded-full bg-[var(--color-line)] mb-4" />
@@ -71,7 +173,7 @@ export function ReviewList({
   return (
     <>
       <div className="divide-y divide-[var(--color-line)] -mx-5 sm:-mx-7">
-        {reviews.map((review) => (
+        {displayReviews.map((review) => (
           <ReviewCard
             key={review.id}
             review={review}

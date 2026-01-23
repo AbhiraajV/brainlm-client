@@ -22,6 +22,12 @@ export interface PendingEvent {
   error?: string
 }
 
+// Track what date ranges have been fetched
+export interface FetchedRange {
+  from: string | null  // null means unbounded (beginning of time)
+  to: string | null    // null means unbounded (now)
+}
+
 interface EventsCacheState {
   // All events by ID (max 200, LRU eviction)
   events: Record<string, CachedEvent>
@@ -33,6 +39,8 @@ interface EventsCacheState {
   lastFetchedAt: string | null
   oldestCursor: string | null  // For "load more"
   hasMore: boolean
+  // Track fetched date ranges for progressive caching
+  fetchedRanges: FetchedRange[]
 }
 
 interface EventsCacheActions {
@@ -46,8 +54,14 @@ interface EventsCacheActions {
   setEvents: (events: CachedEvent[], nextCursor?: string, hasMore?: boolean) => void
   appendOlderEvents: (events: CachedEvent[], nextCursor?: string, hasMore?: boolean) => void
   prependNewerEvents: (events: CachedEvent[]) => void
+  mergeEvents: (events: CachedEvent[]) => void
   updateEvent: (id: string, updates: Partial<CachedEvent>) => void
   removeEvent: (id: string) => void
+
+  // Range tracking for progressive caching
+  addFetchedRange: (from: string | null, to: string | null) => void
+  isRangeCached: (from: string | null, to: string | null) => boolean
+  clearFetchedRanges: () => void
 
   // Getters
   getAllEvents: () => (CachedEvent | PendingEvent)[]
@@ -69,6 +83,7 @@ const initialState: EventsCacheState = {
   lastFetchedAt: null,
   oldestCursor: null,
   hasMore: true,
+  fetchedRanges: [],
 }
 
 // Helper to enforce max events limit with LRU eviction
@@ -265,6 +280,87 @@ export const useEventsCacheStore = create<EventsCacheStore>()(
         })
       },
 
+      // Merge events into cache (for progressive loading of date ranges)
+      // Adds events without replacing existing ones, maintains sort order
+      mergeEvents: (events: CachedEvent[]): void => {
+        set((state) => {
+          const newEvents = { ...state.events }
+          const existingIdsSet = new Set(state.eventIds)
+          const newIds = [...state.eventIds]
+
+          // Add only events that don't already exist
+          for (const event of events) {
+            if (!existingIdsSet.has(event.id)) {
+              newEvents[event.id] = event
+              newIds.push(event.id)
+              existingIdsSet.add(event.id)
+            }
+          }
+
+          // Re-sort by createdAt (newest first)
+          newIds.sort((a, b) => {
+            const eventA = newEvents[a]
+            const eventB = newEvents[b]
+            if (!eventA || !eventB) return 0
+            return new Date(eventB.createdAt).getTime() - new Date(eventA.createdAt).getTime()
+          })
+
+          // Enforce max limit
+          const { events: prunedEvents, eventIds: prunedIds } = enforceMaxEvents(newEvents, newIds)
+
+          return {
+            events: prunedEvents,
+            eventIds: prunedIds,
+            lastFetchedAt: new Date().toISOString(),
+          }
+        })
+      },
+
+      // Add a fetched range to track what's been cached
+      addFetchedRange: (from: string | null, to: string | null): void => {
+        set((state) => {
+          // Check if this range is already covered
+          const isAlreadyCovered = state.fetchedRanges.some(range => {
+            const fromCovered = range.from === null || (from !== null && range.from <= from)
+            const toCovered = range.to === null || (to !== null && range.to >= to)
+            return fromCovered && toCovered
+          })
+
+          if (isAlreadyCovered) {
+            return state
+          }
+
+          // Add the new range (could optimize by merging overlapping ranges)
+          return {
+            fetchedRanges: [...state.fetchedRanges, { from, to }]
+          }
+        })
+      },
+
+      // Check if a date range is already cached
+      isRangeCached: (from: string | null, to: string | null): boolean => {
+        const state = get()
+
+        // "All time" (null, null) is cached if we have an unbounded range
+        if (from === null && to === null) {
+          return state.fetchedRanges.some(range => range.from === null && range.to === null)
+        }
+
+        // Check if any existing range covers the requested range
+        return state.fetchedRanges.some(range => {
+          // Range must cover from: cached.from <= requested.from (or cached.from is null)
+          const fromCovered = range.from === null || (from !== null && range.from <= from)
+          // Range must cover to: cached.to >= requested.to (or cached.to is null)
+          const toCovered = range.to === null || (to !== null && range.to >= to)
+          return fromCovered && toCovered
+        })
+      },
+
+      // Clear all fetched ranges (e.g., on logout or data refresh)
+      clearFetchedRanges: (): void => {
+        set({ fetchedRanges: [] })
+      },
+
       // Update a single event
       updateEvent: (id: string, updates: Partial<CachedEvent>): void => {
         set((state) => {
@@ -358,6 +454,7 @@ export const useEventsCacheStore = create<EventsCacheStore>()(
         lastFetchedAt: state.lastFetchedAt,
         oldestCursor: state.oldestCursor,
         hasMore: state.hasMore,
+        fetchedRanges: state.fetchedRanges,
       }),
       migrate: (persistedState: unknown, version: number) => {
         // Handle migration or corrupted data
@@ -374,6 +471,7 @@ export const useEventsCacheStore = create<EventsCacheStore>()(
             lastFetchedAt: state.lastFetchedAt ?? null,
             oldestCursor: state.oldestCursor ?? null,
             hasMore: state.hasMore ?? true,
+            fetchedRanges: state.fetchedRanges ?? [],
           }
         } catch {
           console.warn('Failed to migrate events cache, resetting')
@@ -391,3 +489,4 @@ export const selectOldestCursor = (state: EventsCacheStore) => state.oldestCurso
 export const selectLastFetchedAt = (state: EventsCacheStore) => state.lastFetchedAt
 export const selectPendingEvents = (state: EventsCacheStore) => state.getPendingEvents()
 export const selectFailedEvents = (state: EventsCacheStore) => state.getFailedEvents()
+export const selectFetchedRanges = (state: EventsCacheStore) => state.fetchedRanges

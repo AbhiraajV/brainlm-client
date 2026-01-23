@@ -1,15 +1,25 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useState, useCallback, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { User, BookOpen, CalendarDays, Menu, X } from 'lucide-react'
 
 export function NavButtonGroup() {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const router = useRouter()
+
+  // Navigate with transition for non-blocking UI
+  const navigate = useCallback((path: string) => {
+    setIsExpanded(false)
+    startTransition(() => {
+      router.push(path)
+    })
+  }, [router])
 
   return (
     <nav
-      className="
+      className={`
         fixed right-4 z-30
         flex flex-col
         bg-[var(--color-surface)]
@@ -18,7 +28,8 @@ export function NavButtonGroup() {
         shadow-[var(--shadow-card)]
         overflow-hidden
         transition-all duration-300 ease-out
-      "
+        ${isPending ? 'opacity-70' : ''}
+      `}
       style={{ bottom: '120px' }}
     >
       {/* Expandable buttons */}
@@ -29,8 +40,8 @@ export function NavButtonGroup() {
           ${isExpanded ? 'max-h-40 opacity-100 pointer-events-auto' : 'max-h-0 opacity-0 pointer-events-none'}
         `}
       >
-        <Link
-          href="/plans"
+        <button
+          onClick={() => navigate('/plans')}
           className="
             w-11 h-11
             flex items-center justify-center
@@ -39,13 +50,12 @@ export function NavButtonGroup() {
           "
           style={{ color: 'var(--color-warn)' }}
           aria-label="Daily Plans"
-          onClick={() => setIsExpanded(false)}
         >
           <CalendarDays className="w-5 h-5" strokeWidth={1.5} />
-        </Link>
+        </button>
         <div className="h-px bg-[var(--color-line)]" />
-        <Link
-          href="/reviews"
+        <button
+          onClick={() => navigate('/reviews')}
           className="
             w-11 h-11
             flex items-center justify-center
@@ -54,13 +64,12 @@ export function NavButtonGroup() {
           "
           style={{ color: 'var(--color-accent)' }}
           aria-label="Reviews"
-          onClick={() => setIsExpanded(false)}
         >
           <BookOpen className="w-5 h-5" strokeWidth={1.5} />
-        </Link>
+        </button>
         <div className="h-px bg-[var(--color-line)]" />
-        <Link
-          href="/me"
+        <button
+          onClick={() => navigate('/me')}
           className="
             w-11 h-11
             flex items-center justify-center
@@ -69,10 +78,9 @@ export function NavButtonGroup() {
           "
           style={{ color: 'var(--color-accent-secondary)' }}
           aria-label="My Profile"
-          onClick={() => setIsExpanded(false)}
         >
           <User className="w-5 h-5" strokeWidth={1.5} />
-        </Link>
+        </button>
         <div className="h-px bg-[var(--color-line)]" />
       </div>
 

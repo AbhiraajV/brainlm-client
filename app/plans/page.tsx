@@ -1,13 +1,12 @@
-import { Suspense } from 'react';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+'use client'
+
 import { PlansFeed } from '@/components/plans';
 import { FullscreenReader } from '@/components/ui/FullscreenReader';
+import { BackButton } from '@/components/ui/BackButton';
 
-export const dynamic = 'force-dynamic';
-
-// Auth + baseline check already done in (app)/layout.tsx
-export default async function PlansPage() {
+// Auth + baseline check already done by middleware
+// Fully client-side page - shows cached data instantly
+export default function PlansPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
       {/* Header */}
@@ -38,42 +37,13 @@ export default async function PlansPage() {
             </p>
           </div>
 
-          {/* Plans feed */}
-          <Suspense
-            fallback={
-              <div className="flex flex-col items-center justify-center py-16 px-5">
-                <div className="w-8 h-8 border-2 border-[var(--color-line)] border-t-[var(--color-accent)] rounded-full animate-spin" />
-                <p className="text-sm text-[var(--color-muted)] mt-4">
-                  Loading plans...
-                </p>
-              </div>
-            }
-          >
-            <PlansFeed limit={20} />
-          </Suspense>
+          {/* Plans feed - client component with cache-first rendering */}
+          <PlansFeed limit={20} />
         </div>
       </main>
 
-      {/* Fixed back button - bottom left */}
-      <Link
-        href="/"
-        className="
-          fixed bottom-6 left-6
-          z-20
-          w-12 h-12
-          flex items-center justify-center
-          bg-[var(--color-surface)]
-          border border-[var(--color-line)]
-          rounded-full
-          shadow-lg
-          transition-all duration-200
-          hover:shadow-xl hover:border-[var(--color-accent)]
-          active:scale-95
-        "
-        aria-label="Go back to home"
-      >
-        <ArrowLeft className="w-5 h-5 text-[var(--color-text)]" />
-      </Link>
+      {/* Fixed back button - bottom left (uses browser history for instant nav) */}
+      <BackButton />
 
       {/* Fullscreen reader for plan details */}
       <FullscreenReader />

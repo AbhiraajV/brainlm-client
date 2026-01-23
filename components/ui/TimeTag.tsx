@@ -21,21 +21,25 @@ function formatTime(date: Date): string {
 function formatSmartDate(date: Date): string {
   const now = new Date()
   const d = new Date(date)
-  const diffMs = now.getTime() - d.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  // Today: no extra date label needed
-  if (diffDays === 0) {
+  // Compare calendar dates (in local timezone)
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000)
+  const eventDay = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+
+  // Today: event is on same calendar day
+  if (eventDay.getTime() === todayStart.getTime()) {
     return ''
   }
 
-  // Yesterday
-  if (diffDays === 1) {
+  // Yesterday: event is on previous calendar day
+  if (eventDay.getTime() === yesterdayStart.getTime()) {
     return 'Yesterday'
   }
 
-  // This week: show day name
-  if (diffDays < 7) {
+  // Within week: check by day difference
+  const daysDiff = Math.floor((todayStart.getTime() - eventDay.getTime()) / (24 * 60 * 60 * 1000))
+  if (daysDiff < 7) {
     return d.toLocaleDateString('en-US', { weekday: 'long' })
   }
 

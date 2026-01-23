@@ -58,8 +58,8 @@ export default async function Page({
                 {/* Analysis stats */}
                 <AnalysisStats dateFilter={dateFilter} filterLabel={filterLabel} />
 
-                {/* Event feed */}
-                <EventFeed limit={20} dateFilter={dateFilter} />
+                {/* Event feed - progressive caching, filters client-side */}
+                <EventFeed limit={20} />
             </div>
 
             {/* Fixed sessions button - bottom left */}

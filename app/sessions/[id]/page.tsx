@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft, Edit2, Trash2, Check } from 'lucide-react';
+import { Edit2, Trash2, Check } from 'lucide-react';
 import { useSessionsStore, selectSessionById } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
 import { SessionEventInput } from '@/components/sessions/SessionEventInput';
@@ -12,6 +11,7 @@ import { SessionUnderstanding } from '@/components/sessions/SessionUnderstanding
 import { EventSuggestion } from '@/components/sessions/EventSuggestion';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
 import { completeSession } from '@/server/actions/session-complete.actions';
+import { BackButton } from '@/components/ui/BackButton';
 import type { EventDraft, Session } from '@/lib/sessions/types';
 
 function formatTimeAgo(isoDate: string): string {
@@ -460,26 +460,20 @@ export default function SessionDetailPage() {
           </div>
         </div>
 
-        {/* Back button */}
-        <Link
-          href="/sessions"
-          className="
-            fixed bottom-28 left-6
-            z-20
-            w-12 h-12
-            flex items-center justify-center
-            bg-[var(--color-surface)]
-            border border-[var(--color-line)]
-            rounded-full
-            shadow-lg
-            transition-all duration-200
-            hover:shadow-xl hover:border-[var(--color-accent)]
-            active:scale-95
-          "
-          aria-label="Back to sessions"
-        >
-          <ArrowLeft className="w-5 h-5 text-[var(--color-text)]" />
-        </Link>
+        {/* Back button (uses browser history for instant nav) */}
+        <BackButton className="
+          fixed bottom-28 left-6
+          z-20
+          w-12 h-12
+          flex items-center justify-center
+          bg-[var(--color-surface)]
+          border border-[var(--color-line)]
+          rounded-full
+          shadow-lg
+          transition-all duration-200
+          hover:shadow-xl hover:border-[var(--color-accent)]
+          active:scale-95
+        " />
       </div>
     </>
   );
