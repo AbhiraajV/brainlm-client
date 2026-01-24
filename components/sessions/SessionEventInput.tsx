@@ -71,6 +71,7 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
       .map(e => ({
         content: e.content,
         createdAt: e.createdAt,
+        llmComment: e.llmComment,
       }));
 
     // Get today's events - filter to only include events from TODAY

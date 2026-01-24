@@ -1,11 +1,13 @@
 'use client'
 
-import { ChevronDown, Layers } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, Layers, PlayCircle } from 'lucide-react'
 import { AnalysisPanel } from './AnalysisPanel'
 import { TimeTag } from '@/components/ui/TimeTag'
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer'
 import { useEventAnalysis } from '@/hooks/useEventAnalysis'
 import { useUiStore, type FullscreenContent } from '@/store/ui.store'
+import { enqueueEvent } from '@/server/actions/event.actions'
 
 type Event = { id: string; content: string; createdAt: Date; occurredAt: Date | null }
 
@@ -127,6 +129,27 @@ export function EventRow({
 
   const { openFullscreenReader } = useUiStore()
 
+  // TEMP: Enqueue button state
+  const [enqueueStatus, setEnqueueStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [enqueueError, setEnqueueError] = useState<string | null>(null)
+
+  const handleEnqueue = async () => {
+    setEnqueueStatus('loading')
+    setEnqueueError(null)
+    try {
+      const result = await enqueueEvent(event.id)
+      if (result.success) {
+        setEnqueueStatus('success')
+      } else {
+        setEnqueueStatus('error')
+        setEnqueueError(result.error)
+      }
+    } catch (err) {
+      setEnqueueStatus('error')
+      setEnqueueError(err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
   // Check if this is a session log
   const sessionLogData = parseSessionLog(event.content)
 
@@ -171,23 +194,49 @@ export function EventRow({
           <TimeTag date={displayDate} />
         </div>
 
+        {/* TEMP: Enqueue button commented out - uncomment to manually fix orphaned events
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleEnqueue}
+            disabled={enqueueStatus === 'loading' || enqueueStatus === 'success'}
+            title={enqueueError || 'Enqueue for processing'}
+            className={`
+              flex items-center gap-1
+              text-[10px] font-medium
+              px-1.5 py-0.5
+              rounded
+              transition-all duration-200
+              ${enqueueStatus === 'success'
+                ? 'text-green-600 bg-green-100'
+                : enqueueStatus === 'error'
+                ? 'text-red-600 bg-red-100'
+                : 'text-orange-600 bg-orange-100 hover:bg-orange-200'}
+              disabled:opacity-50
+            `}
+          >
+            <PlayCircle className="w-3 h-3" />
+            {enqueueStatus === 'loading' ? '...' : enqueueStatus === 'success' ? 'Queued' : enqueueStatus === 'error' ? 'Err' : 'Q'}
+          </button>
+        </div>
+        */}
+
         <button
-          onClick={onToggle}
-          aria-expanded={isExpanded}
-          aria-label={isExpanded ? 'Collapse analysis' : 'Expand analysis'}
-          className="
-            flex items-center gap-1
-            text-[11px] font-medium
-            text-[var(--color-accent-secondary)]
-            transition-all duration-200
-            hover:text-[var(--color-accent)]
-          "
-        >
-          <span>{isExpanded ? 'Hide Analysis' : 'Read Analysis'}</span>
-          <ChevronDown
-            className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-          />
-        </button>
+            onClick={onToggle}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? 'Collapse analysis' : 'Expand analysis'}
+            className="
+              flex items-center gap-1
+              text-[11px] font-medium
+              text-[var(--color-accent-secondary)]
+              transition-all duration-200
+              hover:text-[var(--color-accent)]
+            "
+          >
+            <span>{isExpanded ? 'Hide Analysis' : 'Read Analysis'}</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+            />
+          </button>
       </div>
 
       {/* Event content - full width */}

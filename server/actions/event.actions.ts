@@ -48,6 +48,54 @@ export async function getForCurrentUser() {
  * Create an event and enqueue it for interpretation processing.
  * Uses a transaction to ensure atomic creation of event + worker job.
  */
+/**
+ * Manually enqueue an existing event for interpretation processing.
+ * Use this to fix events that were created without being enqueued.
+ * TEMPORARY: Remove after fixing all orphaned events.
+ */
+export async function enqueueEvent(eventId: string): Promise<{ success: true; jobId: string } | { success: false; error: string }> {
+    const user = await requireUser();
+
+    // Verify the event exists and belongs to the user
+    const event = await prisma.event.findFirst({
+        where: { id: eventId, userId: user.id },
+        select: { id: true },
+    });
+
+    if (!event) {
+        return { success: false, error: 'Event not found' };
+    }
+
+    // Check if a job already exists for this event
+    const existingJob = await prisma.workerJob.findFirst({
+        where: {
+            type: JobType.INTERPRET_EVENT,
+            idempotencyKey: `interpret:${eventId}`,
+        },
+        select: { id: true, status: true },
+    });
+
+    if (existingJob) {
+        return { success: false, error: `Job already exists (status: ${existingJob.status})` };
+    }
+
+    // Create the worker job
+    const job = await prisma.workerJob.create({
+        data: {
+            type: JobType.INTERPRET_EVENT,
+            payload: { eventId, userId: user.id },
+            status: JobStatus.PENDING,
+            priority: 0,
+            maxAttempts: 3,
+            userId: user.id,
+            idempotencyKey: `interpret:${eventId}`,
+        },
+        select: { id: true },
+    });
+
+    return { success: true, jobId: job.id };
+}
+
 export async function createEvent({ content, occurredAt }: CreateEventInput): Promise<CreateEventResult> {
     const user = await requireUser();
 

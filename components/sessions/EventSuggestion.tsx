@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MessageCircle, AlertCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageCircle, AlertCircle, RefreshCw, ChevronDown, ChevronUp, X } from 'lucide-react';
 
 interface EventSuggestionProps {
   sessionId: string;
@@ -10,6 +10,7 @@ interface EventSuggestionProps {
   comment?: string;
   error?: string;
   onRetry: () => void;
+  onDelete?: () => void;
 }
 
 export function EventSuggestion({
@@ -17,6 +18,7 @@ export function EventSuggestion({
   comment,
   error,
   onRetry,
+  onDelete,
 }: EventSuggestionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -85,23 +87,41 @@ export function EventSuggestion({
           "
         >
           {/* Header */}
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="
-              flex items-center gap-2
-              text-xs text-[var(--color-muted)]
-              hover:text-[var(--color-text)]
-              transition-colors
-            "
-          >
-            <MessageCircle className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-            <span className="font-medium text-[var(--color-accent)]">Coach</span>
-            {isExpanded ? (
-              <ChevronUp className="w-3 h-3" />
-            ) : (
-              <ChevronDown className="w-3 h-3" />
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="
+                flex items-center gap-2
+                text-xs text-[var(--color-muted)]
+                hover:text-[var(--color-text)]
+                transition-colors
+              "
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+              <span className="font-medium text-[var(--color-accent)]">Coach</span>
+              {isExpanded ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="
+                  p-1
+                  text-[var(--color-muted)]
+                  rounded
+                  transition-colors
+                  hover:text-[var(--color-error)]
+                  hover:bg-[var(--color-error)]/10
+                "
+                aria-label="Delete comment"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             )}
-          </button>
+          </div>
 
           {/* Content */}
           {isExpanded && (

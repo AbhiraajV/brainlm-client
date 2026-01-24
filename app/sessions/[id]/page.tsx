@@ -45,7 +45,7 @@ function EventDraftRow({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(event.content);
-  const { updateEventDraft, deleteEventDraft } = useSessionsStore();
+  const { updateEventDraft, deleteEventDraft, setEventLlmComment } = useSessionsStore();
 
   const handleSave = () => {
     const trimmed = editValue.trim();
@@ -62,6 +62,10 @@ function EventDraftRow({
 
   const handleDelete = () => {
     deleteEventDraft(sessionId, event.id);
+  };
+
+  const handleDeleteComment = () => {
+    setEventLlmComment(sessionId, event.id, null, 'pending');
   };
 
   if (isEditing) {
@@ -136,6 +140,7 @@ function EventDraftRow({
             comment={event.llmComment}
             error={event.llmCommentError}
             onRetry={() => onRetry(event.id)}
+            onDelete={handleDeleteComment}
           />
         </div>
 
@@ -209,7 +214,7 @@ export default function SessionDetailPage() {
     const eventIndex = session.events.findIndex(e => e.id === eventId);
     const previousEvents = session.events
       .slice(0, eventIndex)
-      .map(e => ({ content: e.content, createdAt: e.createdAt }));
+      .map(e => ({ content: e.content, createdAt: e.createdAt, llmComment: e.llmComment }));
 
     // Get today's events and yesterday's review from knowledge (displayed directly, also passed to commenting LLM)
     const todaysEvents = session.knowledge?.todaysEvents?.map(e => ({

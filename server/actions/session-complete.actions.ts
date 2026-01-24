@@ -1,7 +1,7 @@
 'use server';
 
 import { requireUser } from '@/server/auth';
-import { prisma } from '@/server/prisma/client';
+import { createEvent } from './event.actions';
 
 interface SessionEvent {
   content: string;
@@ -26,16 +26,12 @@ export async function completeSession(
   const content = formatSessionSummary(input);
 
   try {
-    const event = await prisma.event.create({
-      data: {
-        userId: user.id,
-        content,
-        occurredAt: new Date(),
-      },
-      select: { id: true },
+    const result = await createEvent({
+      content,
+      occurredAt: new Date(),
     });
 
-    return { success: true, eventId: event.id };
+    return { success: true, eventId: result.event.id };
   } catch (error) {
     console.error('[completeSession] Error:', error);
     return { success: false, error: 'Failed to create event' };
