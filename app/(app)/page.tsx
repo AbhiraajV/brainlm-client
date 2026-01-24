@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { EventFeed, DateRangeFilter, AnalysisStats } from "@/components/event-feed";
 import { TimeGreeting } from "@/components/ui/TimeGreeting";
 import { GoToSessionsButton } from "@/components/sessions";
-import { getAuthAdapter } from "@/server/auth/adapter";
+import { requireUser } from "@/server/auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +23,9 @@ export default async function Page({
 }: {
     searchParams: SearchParams
 }) {
-    // Parallel: Get user and parse params simultaneously (auth already validated by layout)
+    // Parallel: Get user and parse params simultaneously (auth already validated by middleware)
     const [user, params] = await Promise.all([
-        getAuthAdapter().getCurrentUser(),
+        requireUser(),
         searchParams
     ]);
 

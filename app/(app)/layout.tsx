@@ -1,15 +1,35 @@
 import { ReactNode } from "react";
+import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
+import { UserButton } from "@clerk/nextjs";
 import { EventInput } from "@/components/event-input";
 import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
+import { requireUser } from "@/server/auth";
+import { prisma } from "@/server/prisma/client";
 
-// No force-dynamic - this layout is now instant
-// Auth and baseline checks are handled by middleware
+export const dynamic = 'force-dynamic';
 
-export default function AppLayout({ children }: { children: ReactNode }) {
-    // Middleware already validated:
-    // 1. User is authenticated (has valid session cookie)
-    // 2. User has completed onboarding (session.hasBaseline === true)
-    // No database calls needed here!
+export default async function AppLayout({ children }: { children: ReactNode }) {
+    // Get authenticated user (Clerk middleware ensures user is signed in)
+    const user = await requireUser();
+
+    // Check if user has completed onboarding
+    const dbUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { baseline: true },
+    });
+
+    if (!dbUser?.baseline) {
+        redirect("/onboarding");
+    }
+
+    // Check if user has an active subscription (Clerk handles free trials)
+    const { has } = await auth();
+    const hasSubscription = await has({ plan: "motif_monthly_plan" });
+
+    if (!hasSubscription) {
+        redirect("/pricing");
+    }
 
     return (
         <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
@@ -23,11 +43,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 border-b border-[var(--color-line)]
             ">
                 <div className="font-serif font-semibold text-lg text-[var(--color-text)]">
-                    BrainLM
+                    Motif
                 </div>
 
-                {/* Subtle accent dot - indicates system is active */}
-                <div className="w-2 h-2 rounded-full bg-[var(--color-accent)] opacity-60" />
+                {/* User menu with sign out */}
+                <UserButton afterSignOutUrl="/" />
             </header>
 
             {/* Main content - add bottom padding for fixed input */}

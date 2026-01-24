@@ -11,11 +11,13 @@ import { NavigationButtons } from './NavigationButtons';
 import { IntroStep } from './steps/IntroStep';
 import { QuestionStep } from './steps/QuestionStep';
 import { CompletionStep } from './steps/CompletionStep';
-import { ConsolidationLoader } from './ConsolidationLoader';
+import { FeatureShowcase } from './FeatureShowcase';
 
 export function OnboardingContainer() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showFeatures, setShowFeatures] = useState(false);
+  const [saveComplete, setSaveComplete] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
@@ -72,17 +74,19 @@ export function OnboardingContainer() {
 
     setIsSubmitting(true);
     setSubmitError(null);
+    setShowFeatures(true);  // Show FeatureShowcase IMMEDIATELY
 
     try {
+      // Run saveBaseline in background - FeatureShowcase will wait for this
       const result = await saveBaseline(answers);
 
       if (result.success) {
-        // Clear local storage and redirect to profile page
         reset();
-        router.push('/me');
-        router.refresh();
+        // Don't redirect here - FeatureShowcase handles it when ready
+        setSaveComplete(true);  // Signal completion to FeatureShowcase
       } else {
         setSubmitError(result.error || 'Failed to save. Please try again.');
+        // Error will be shown in FeatureShowcase
       }
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
@@ -90,7 +94,14 @@ export function OnboardingContainer() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [allComplete, isSubmitting, answers, reset, router]);
+  }, [allComplete, isSubmitting, answers, reset]);
+
+  const handleRetry = useCallback(() => {
+    setShowFeatures(false);
+    setSubmitError(null);
+    setSaveComplete(false);
+    setIsSubmitting(false);
+  }, []);
 
   if (!currentStep) {
     return (
@@ -100,9 +111,15 @@ export function OnboardingContainer() {
     );
   }
 
-  // Show full-screen loader during consolidation
-  if (isSubmitting) {
-    return <ConsolidationLoader />;
+  // Show feature showcase as the loader (runs saveBaseline in background)
+  if (showFeatures) {
+    return (
+      <FeatureShowcase
+        onSaveComplete={saveComplete}
+        onError={submitError}
+        onRetry={handleRetry}
+      />
+    );
   }
 
   return (

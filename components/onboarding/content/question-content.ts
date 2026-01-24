@@ -144,5 +144,5 @@ From here, everything you log becomes part of your personal context. The system 
 
 This baseline isn't permanent. As you change, the system changes with you. But you've given it somewhere to start.
 
-Welcome to BrainLM.`,
+Welcome to Motif.`,
 };

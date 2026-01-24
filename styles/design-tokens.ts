@@ -1,5 +1,5 @@
 /**
- * Design tokens matching the BrainLM design language.
+ * Design tokens matching the Motif design language.
  * Warm, calm neutrals + teal/copper accent. Premium, editorial feel.
  * Mobile-first, accessible.
  */
