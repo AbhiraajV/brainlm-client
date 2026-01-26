@@ -48,7 +48,7 @@ export default async function Page({
         <>
             <div className="space-y-6">
                 {/* Greeting */}
-                <TimeGreeting name={userName} />
+                {/* <TimeGreeting name={userName} /> */}
 
                 {/* Date filter */}
                 <Suspense fallback={<div className="h-10" />}>

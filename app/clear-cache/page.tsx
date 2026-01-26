@@ -25,7 +25,7 @@ export default function ClearCachePage() {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key?.startsWith('brainlm:') || key?.startsWith('motif:')) {
+        if (key?.startsWith('brainlm:') || key?.startsWith('Motif.:')) {
           keysToRemove.push(key);
         }
       }

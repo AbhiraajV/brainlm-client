@@ -17,7 +17,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Motif",
+  title: "Motif.",
   description: "Your personal reflection companion",
 };
 

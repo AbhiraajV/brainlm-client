@@ -20,7 +20,7 @@ export default async function OnboardingLayout({ children }: { children: ReactNo
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-[var(--color-accent)]" />
           <span className="font-serif font-semibold text-lg text-[var(--color-text)]">
-            Motif
+            Motif.
           </span>
         </div>
       </header>

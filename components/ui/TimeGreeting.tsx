@@ -33,18 +33,18 @@ export function TimeGreeting({ name }: TimeGreetingProps) {
   if (!mounted) {
     return (
       <header className="space-y-1">
-        <h1 className="font-serif text-2xl sm:text-3xl text-[var(--color-text)]">
+        <span className="font-serif text-xl sm:text-xl text-[var(--color-text)]">
           Hello{name ? `, ${name}` : ''} 👋
-        </h1>
+        </span>
       </header>
     );
   }
 
   return (
     <header className="space-y-1">
-      <h1 className="font-serif text-2xl sm:text-3xl text-[var(--color-text)]">
+      <span className="font-serif text-xl sm:text-xl font-semibold text-[var(--color-text)]">
         {greetingData.greeting}{name ? `, ${name}` : ''} {greetingData.emoji}
-      </h1>
+      </span>
     </header>
   );
 }
