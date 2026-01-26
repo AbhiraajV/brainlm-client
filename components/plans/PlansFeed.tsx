@@ -126,7 +126,7 @@ export function PlansFeed({ limit = 20 }: { limit?: number }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div>
       {displayPlans.map((plan) => (
         <DailyPlanCard
           key={plan.id}
@@ -136,7 +136,7 @@ export function PlansFeed({ limit = 20 }: { limit?: number }) {
       ))}
 
       {hasMore && (
-        <div className="flex justify-center py-6">
+        <div className="flex justify-center py-6 border-t border-[var(--color-line)]">
           <button
             onClick={loadMore}
             disabled={isRefreshing}

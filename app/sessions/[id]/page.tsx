@@ -225,6 +225,11 @@ export default function SessionDetailPage() {
       ? { summary: session.knowledge.yesterdaysReview.summary, periodKey: session.knowledge.yesterdaysReview.periodKey }
       : undefined;
 
+    // Get today's plan from knowledge
+    const todaysPlan = session.knowledge?.todaysPlan
+      ? { renderedMarkdown: session.knowledge.todaysPlan.renderedMarkdown }
+      : undefined;
+
     try {
       const result = await generateEventSuggestion(
         session.id,
@@ -236,7 +241,8 @@ export default function SessionDetailPage() {
         guide,
         domainKnowledge,
         todaysEvents,
-        yesterdaysReview
+        yesterdaysReview,
+        todaysPlan
       );
 
       if ('suggestion' in result) {

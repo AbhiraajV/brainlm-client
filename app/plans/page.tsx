@@ -25,21 +25,19 @@ export default function PlansPage() {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 py-6 sm:py-8 pb-24 px-4 sm:px-6">
-        <div className="max-w-2xl mx-auto space-y-4">
-          {/* Subtitle */}
-          <div className="space-y-2 mb-6">
-            <p className="text-sm text-[var(--color-muted)]">
-              Personalized plans based on your patterns and insights
-            </p>
-            <p className="text-sm font-semibold italic text-[var(--color-muted)]">
-              These plans help you make the most of each day by surfacing relevant focus areas, suggested schedules, and things to watch out for.
-            </p>
-          </div>
-
-          {/* Plans feed - client component with cache-first rendering */}
-          <PlansFeed limit={20} />
+      <main className="flex-1 pb-24">
+        {/* Subtitle */}
+        <div className="px-5 py-4 border-b border-[var(--color-line)]">
+          <p className="text-sm text-[var(--color-muted)]">
+            Personalized plans based on your patterns and insights
+          </p>
+          <p className="text-sm font-semibold italic text-[var(--color-muted)] mt-1">
+            These plans help you make the most of each day by surfacing relevant focus areas, suggested schedules, and things to watch out for.
+          </p>
         </div>
+
+        {/* Plans feed - client component with cache-first rendering */}
+        <PlansFeed limit={20} />
       </main>
 
       {/* Fixed back button - bottom left (uses browser history for instant nav) */}

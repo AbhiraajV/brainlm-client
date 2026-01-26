@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { EventInput } from "@/components/event-input";
 import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
+import { TimezoneSync } from "@/components/TimezoneSync";
 import { requireUser } from "@/server/auth";
 import { prisma } from "@/server/prisma/client";
 
@@ -33,6 +34,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
     return (
         <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
+            {/* Background timezone sync */}
+            <TimezoneSync />
+
             {/* Minimal header */}
             <header className="
                 sticky top-0 z-10
@@ -43,7 +47,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 border-b border-[var(--color-line)]
             ">
                 <div className="font-serif font-semibold text-lg text-[var(--color-text)]">
-                    Motif
+                    Motif.
                 </div>
 
                 {/* User menu with sign out */}

@@ -117,10 +117,10 @@ function SectionHeader({
 
 export function DailyPlanCard({ plan, onReadMore }: DailyPlanCardProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    focus: true,
-    sessions: true,
+    focus: false,
+    sessions: false,
     warnings: false,
-    ctas: true,
+    ctas: false,
   });
 
   const toggleSection = (section: string) => {
@@ -132,7 +132,7 @@ export function DailyPlanCard({ plan, onReadMore }: DailyPlanCardProps) {
   const isTomorrow = dateLabel === 'Tomorrow';
 
   return (
-    <div className="card overflow-hidden">
+    <div className="bg-[var(--color-surface)] border-b border-[var(--color-line)] overflow-hidden">
       {/* Header */}
       <div className="px-5 py-4 border-b border-[var(--color-line)]">
         <div className="flex items-center justify-between">
