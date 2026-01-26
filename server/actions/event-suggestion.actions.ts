@@ -4,85 +4,26 @@
  * Event Suggestion Server Actions
  *
  * Provides real-time LLM-powered coaching suggestions after each event is logged.
- * The LLM acts as the session coach and suggests actionable next steps.
+ * Uses specialized prompts based on tracker type (diet, gym, addiction, general).
+ *
+ * For diet/gym trackers: Returns both masterSummary and comment
+ * For addiction/general: Returns comment only
  */
 
 import { requireUser } from '@/server/auth';
+import type { TrackerType } from '@/lib/sessions/types';
+import {
+  getEventCoachPrompt,
+  hasMasterSummary,
+  extractSection,
+} from '@/server/prompts/tracker-prompts';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-const EVENT_COACH_PROMPT = `You are the user's SESSION COACH - your job is to help them achieve: {{goal}}
-
-YOUR ROLE: {{guide}}
-
-USER'S CONTEXT (use this to personalize your coaching):
-{{keyContext}}
-
-{{todaysPlanSection}}
-{{yesterdaysReviewSection}}
-{{todaysEventsSection}}
-
-=== DETERMINE SESSION TYPE FROM GOAL ===
-
-Look at the SESSION GOAL above, NOT the event content:
-- Contains: diet, food, calories, eating, nutrition, macros → TRACKING (nutrition)
-- Contains: workout, gym, exercise, lift, training → TRACKING (fitness)
-- Contains: study, focus, learn, read, work → TRACKING (productivity)
-- Contains: quit, craving, urge, addiction, anxiety → SUPPORT (therapeutic)
-- Contains: cook, build, create, make, project → PROCESS (step guidance)
-
-The session type NEVER changes based on event content. A diet session stays diet even if user mentions emotions.
-
-=== HANDLING QUESTIONS ===
-
-If the event is a QUESTION (contains ?, "how many", "what's my", "total", "what now", "what next"):
-- Line 1: ANSWER with calculated data from session
-- Line 2: Brief context
-- Line 3: → Specific next action
-
-Examples:
-- "today's total calories?" → "1,250 cal | 85g protein tracked so far" + context + suggestion
-- "what now?" → Suggest the logical next action based on session progress
-- "how many sets?" → Count from session events and answer
-
-=== OUTPUT FORMAT (3 lines, plain text, no markdown) ===
-
-TRACKING sessions:
-Line 1: Cumulative totals (calculate from ALL session events)
-Line 2: Brief observation connecting to their goals/patterns
-Line 3: → Specific next action toward session goal
-
-SUPPORT sessions:
-Line 1: Acknowledge what they're experiencing
-Line 2: Insight about WHY (from their patterns)
-Line 3: → Specific coping strategy
-
-PROCESS sessions:
-Line 1: Current step/progress
-Line 2: Guidance for this step
-Line 3: → What to do next
-
-=== RULES ===
-
-1. SESSION TYPE IS LOCKED BY GOAL - never switch to support mode in a tracking session
-2. ANSWER QUESTIONS with data - don't treat questions as emotional events
-3. CALCULATE TOTALS accurately from all session events
-4. BE ACTIVE - guide them, don't just comment
-5. USE THEIR CONTEXT - reference their goals, patterns, preferences
-6. Plain text only, no markdown
-7. Be concise but warm
-
-=== SESSION EVENTS ===
-
-{{previousEvents}}
-
-NEW EVENT:
-{{newEvent}}`;
 
 interface PreviousEvent {
   content: string;
   createdAt: string;
-  llmComment?: string;  // Coach's previous response
+  llmComment?: string;
 }
 
 interface TodayEvent {
@@ -99,6 +40,11 @@ interface TodaysPlan {
   renderedMarkdown: string;
 }
 
+export interface EventSuggestionResult {
+  comment: string;
+  masterSummary?: string;
+}
+
 /**
  * Generate an LLM coaching suggestion for a newly logged event
  *
@@ -110,10 +56,12 @@ interface TodaysPlan {
  * @param sessionGoal - The session goal (explicit or inferred)
  * @param guide - The session guide name
  * @param keyContext - Domain knowledge from brain transfer
+ * @param trackerType - Specialized tracker type (diet, gym, addiction, general)
+ * @param currentMasterSummary - Current master summary (for diet/gym trackers)
  * @param todaysEvents - All events from today (optional)
  * @param yesterdaysReview - Yesterday's review summary (optional)
  * @param todaysPlan - Today's daily plan with focus areas and targets (optional)
- * @returns The suggestion or an error
+ * @returns The suggestion with comment and optional masterSummary, or an error
  */
 export async function generateEventSuggestion(
   sessionId: string,
@@ -124,10 +72,12 @@ export async function generateEventSuggestion(
   sessionGoal: string,
   guide: string,
   keyContext: string,
+  trackerType: TrackerType = 'general',
+  currentMasterSummary?: string,
   todaysEvents?: TodayEvent[],
   yesterdaysReview?: YesterdaysReview,
   todaysPlan?: TodaysPlan
-): Promise<{ suggestion: string } | { error: string }> {
+): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
   if (!OPENAI_API_KEY) {
@@ -141,7 +91,7 @@ export async function generateEventSuggestion(
         .map((e, i) => {
           let entry = `${i + 1}. ${e.content} (${formatRelativeTime(e.createdAt)})`;
           if (e.llmComment) {
-            entry += `\n   → You said: ${e.llmComment}`;
+            entry += `\n   → Coach: ${e.llmComment}`;
           }
           return entry;
         })
@@ -163,8 +113,11 @@ export async function generateEventSuggestion(
     ? `YESTERDAY (${yesterdaysReview.periodKey}):\n${yesterdaysReview.summary}`
     : '';
 
+  // Get the appropriate prompt for this tracker type
+  const basePrompt = getEventCoachPrompt(trackerType);
+
   // Build the prompt by replacing placeholders
-  const prompt = EVENT_COACH_PROMPT
+  const prompt = basePrompt
     .replace('{{guide}}', guide || 'Session Coach')
     .replace('{{goal}}', sessionGoal || 'Make progress on current goals')
     .replace('{{keyContext}}', keyContext || '(No historical context available)')
@@ -172,7 +125,8 @@ export async function generateEventSuggestion(
     .replace('{{todaysEventsSection}}', todaysEventsSection)
     .replace('{{yesterdaysReviewSection}}', yesterdaysReviewSection)
     .replace('{{previousEvents}}', formattedPreviousEvents)
-    .replace('{{newEvent}}', eventContent);
+    .replace('{{newEvent}}', eventContent)
+    .replace('{{currentMasterSummary}}', currentMasterSummary || '(No previous entries)');
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -188,7 +142,7 @@ export async function generateEventSuggestion(
           { role: 'user', content: `Event: ${eventContent}` },
         ],
         temperature: 0.7,
-        max_tokens: 300,
+        max_tokens: hasMasterSummary(trackerType) ? 1500 : 300,
       }),
     });
 
@@ -199,13 +153,32 @@ export async function generateEventSuggestion(
     }
 
     const data = await response.json();
-    const suggestion = data.choices?.[0]?.message?.content?.trim();
+    const rawResponse = data.choices?.[0]?.message?.content?.trim();
 
-    if (!suggestion) {
+    if (!rawResponse) {
       return { error: 'Empty response from AI' };
     }
 
-    return { suggestion };
+    // Parse response based on tracker type
+    if (hasMasterSummary(trackerType)) {
+      // Diet/Gym: Extract both MASTER_SUMMARY and COMMENT sections
+      const masterSummary = extractSection(rawResponse, 'MASTER_SUMMARY');
+      const comment = extractSection(rawResponse, 'COMMENT');
+
+      if (!comment) {
+        // Fallback: treat whole response as comment if parsing fails
+        return { comment: rawResponse };
+      }
+
+      return {
+        comment,
+        masterSummary: masterSummary || undefined,
+      };
+    } else {
+      // Addiction/General: Extract COMMENT only (or use whole response)
+      const comment = extractSection(rawResponse, 'COMMENT') || rawResponse;
+      return { comment };
+    }
   } catch (error) {
     console.error('[generateEventSuggestion] Error:', error);
     return { error: 'Network error - please try again' };

@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding } from '@/lib/sessions/types';
+import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:sessions';
-const STORAGE_VERSION = 5; // Bumped for v5: EventDraft LLM suggestion fields
+const STORAGE_VERSION = 9; // Bumped for v9: SessionAnalysis
 
 const initialState: SessionsState = {
   sessions: [],
@@ -36,7 +36,7 @@ const isValidSession = (session: unknown): session is Session => {
   );
 };
 
-// Migrate session to latest schema (v3)
+// Migrate session to latest schema (v9)
 const migrateSession = (session: Record<string, unknown>): Session => {
   return {
     id: session.id as string,
@@ -49,6 +49,11 @@ const migrateSession = (session: Record<string, unknown>): Session => {
     events: (session.events as Session['events']) || [],
     knowledge: session.knowledge as SessionKnowledge | undefined,
     understanding: session.understanding as SessionUnderstanding | undefined,
+    analysis: session.analysis as SessionAnalysis | undefined,
+    trackerType: session.trackerType as TrackerType | undefined,
+    masterSummary: session.masterSummary as string | undefined,
+    suggestedWorkout: session.suggestedWorkout as SuggestedWorkout | undefined,
+    suggestedDiet: session.suggestedDiet as SuggestedDiet | undefined,
   };
 };
 
@@ -227,7 +232,8 @@ export const useSessionsStore = create<SessionsStore>()(
         eventId: string,
         comment: string | null,
         status: 'pending' | 'generating' | 'completed' | 'failed',
-        error?: string
+        error?: string,
+        masterSummary?: string
       ): void => {
         const now = new Date().toISOString();
 
@@ -246,6 +252,74 @@ export const useSessionsStore = create<SessionsStore>()(
                         }
                       : event
                   ),
+                  // Update masterSummary if provided (for diet/gym trackers)
+                  ...(masterSummary !== undefined && { masterSummary }),
+                  updatedAt: now,
+                }
+              : session
+          ),
+        }));
+      },
+
+      setTrackerType: (sessionId: string, type: TrackerType): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, trackerType: type, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      updateMasterSummary: (sessionId: string, summary: string): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, masterSummary: summary, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, suggestedWorkout: workout, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setSuggestedDiet: (sessionId: string, diet: SuggestedDiet): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, suggestedDiet: diet, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setSessionAnalysis: (sessionId: string, analysis: SessionAnalysis): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  analysis,
+                  // Also set trackerType from analysis
+                  trackerType: analysis.sessionType,
                   updatedAt: now,
                 }
               : session

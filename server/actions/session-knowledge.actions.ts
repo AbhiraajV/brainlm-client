@@ -34,7 +34,9 @@ import type {
   KnowledgeInsight,
   KnowledgeReview,
   KnowledgeDailyPlan,
+  TrackerType,
 } from '@/lib/sessions/types';
+import { inferTrackerType } from '@/server/prompts/tracker-prompts';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -61,6 +63,7 @@ const REVIEWS_LIMIT = 5;
 export interface FetchKnowledgeResult {
   seed: string;
   knowledge: SessionKnowledge;
+  trackerType: TrackerType;
 }
 
 interface RawInterpretation {
@@ -360,11 +363,15 @@ export async function fetchSessionKnowledge(
     const { today, yesterday, todayStart } = getDateKeys(user.timezone);
 
     // ========================================================================
-    // PHASE 1: Generate seed and embedding
+    // PHASE 1: Generate seed, embedding, and infer tracker type
     // ========================================================================
     console.log('[fetchSessionKnowledge] Generating seed...');
     const seed = await generateSeed(title, context);
     console.log('[fetchSessionKnowledge] Seed:', seed);
+
+    // Infer tracker type from title and context
+    const trackerType = inferTrackerType(title, context);
+    console.log('[fetchSessionKnowledge] Tracker type:', trackerType);
 
     console.log('[fetchSessionKnowledge] Generating embedding...');
     const embedding = await generateEmbedding(seed);
@@ -373,6 +380,7 @@ export async function fetchSessionKnowledge(
       console.error('[fetchSessionKnowledge] Failed to generate embedding');
       return {
         seed,
+        trackerType,
         knowledge: {
           retrievedAt: new Date().toISOString(),
           seed,
@@ -715,10 +723,11 @@ export async function fetchSessionKnowledge(
       `todaysEvents=${knowledge.todaysEvents?.length ?? 0}`,
       `hasBaseline=${!!knowledge.userBaseline}`,
       `hasTodaysPlan=${!!knowledge.todaysPlan}`,
-      `hasYesterdaysReview=${!!knowledge.yesterdaysReview}`
+      `hasYesterdaysReview=${!!knowledge.yesterdaysReview}`,
+      `trackerType=${trackerType}`
     );
 
-    return { seed, knowledge };
+    return { seed, knowledge, trackerType };
   } catch (error) {
     console.error('[fetchSessionKnowledge] Error:', error);
     return null;

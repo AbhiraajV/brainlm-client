@@ -1,20 +1,59 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useFilterStore } from '@/store/filter.store'
 import { getAnalysisStats } from '@/server/actions/analysis.actions'
 
-type Props = {
-  dateFilter?: {
-    from?: string
-    to?: string
-  }
-  filterLabel?: string
+const filterLabels: Record<string, string> = {
+  all: 'all time',
+  today: 'today',
+  yesterday: 'yesterday',
+  week: 'this week',
+  month: 'this month',
+  '30days': 'in the last 30 days'
 }
 
-export async function AnalysisStats({ dateFilter, filterLabel = 'today' }: Props) {
-  const stats = await getAnalysisStats(dateFilter)
+type Stats = {
+  patterns: number
+  interpretations: number
+  insights: number
+  aiCommittees: number
+}
 
-  // Don't show anything if there's no activity
+export function AnalysisStats() {
+  const { dateFilter, filterValue } = useFilterStore()
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+
+    getAnalysisStats(dateFilter).then((result) => {
+      if (!cancelled) {
+        setStats(result)
+        setLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [dateFilter])
+
+  if (loading || !stats) {
+    return null
+  }
+
   if (stats.interpretations === 0 && stats.patterns === 0 && stats.insights === 0) {
     return null
   }
+
+  const filterLabel = filterLabels[filterValue] || 'today'
 
   return (
     <p className="-mt-4 text-[10px] text-[var(--color-muted)]/50 italic text-center leading-relaxed">

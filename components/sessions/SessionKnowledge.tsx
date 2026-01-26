@@ -172,6 +172,7 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setSessionKnowledge = useSessionsStore((state) => state.setSessionKnowledge);
+  const setTrackerType = useSessionsStore((state) => state.setTrackerType);
 
   // Debug logging
   const totalItems = knowledge
@@ -200,8 +201,10 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
         if (cancelled) return;
 
         if (result) {
-          console.log('[SessionKnowledge] Got knowledge with seed:', result.seed);
+          console.log('[SessionKnowledge] Got knowledge with seed:', result.seed, 'trackerType:', result.trackerType);
           setSessionKnowledge(sessionId, result.knowledge);
+          // Also set the inferred tracker type
+          setTrackerType(sessionId, result.trackerType);
         } else {
           console.log('[SessionKnowledge] No knowledge returned');
           setError('No relevant knowledge found');
@@ -222,7 +225,7 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
     return () => {
       cancelled = true;
     };
-  }, [sessionId, title, context, knowledge, setSessionKnowledge]);
+  }, [sessionId, title, context, knowledge, setSessionKnowledge, setTrackerType]);
 
   // Loading state (but not if knowledge already arrived)
   if (isLoading && !knowledge) {

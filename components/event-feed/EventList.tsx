@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { Loader2, RefreshCw, AlertCircle } from 'lucide-react'
 import { EventRow } from './EventRow'
 import { FullscreenReader } from '@/components/ui/FullscreenReader'
 import { getEventsPage, type DateFilter } from '@/server/actions/event.actions'
 import { useEventsCacheStore, type CachedEvent, type PendingEvent } from '@/store/events-cache.store'
+import { useFilterStore } from '@/store/filter.store'
 import { useHydrated } from '@/hooks/useHydrated'
 import { createEvent } from '@/server/actions/event.actions'
 import { isStale, CACHE_CONSTANTS } from '@/lib/cache-utils'
@@ -98,22 +98,12 @@ export function EventList({
   initialCursor?: string
 }) {
   const hydrated = useHydrated()
-  const searchParams = useSearchParams()
+  const { filterValue, dateFilter } = useFilterStore()
   const [loading, setLoading] = useState(false)
   const [rangeLoading, setRangeLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const hasSeedCache = useRef(false)
   const lastFetchedFilter = useRef<string | null>(null)
-
-  const filterValue = searchParams.get('filter') || 'today'
-
-  // Get date filter from URL params (set by DateRangeFilter)
-  const dateFilter = useMemo((): DateFilter | undefined => {
-    const from = searchParams.get('from')
-    const to = searchParams.get('to')
-    if (!from && !to) return undefined
-    return { from: from || undefined, to: to || undefined }
-  }, [searchParams])
 
   // Events cache store
   const {

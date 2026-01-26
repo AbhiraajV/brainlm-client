@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Brain, ChevronDown, Calendar, Clock } from 'lucide-react';
-import type { SessionKnowledge, SessionUnderstanding as SessionUnderstandingType } from '@/lib/sessions/types';
+import type { SessionKnowledge, SessionUnderstanding as SessionUnderstandingType, TrackerType } from '@/lib/sessions/types';
 import { condenseSessionKnowledge } from '@/server/actions/session-understanding.actions';
 import { useSessionsStore } from '@/store/sessions.store';
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
+import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
 
 interface Props {
   sessionId: string;
@@ -13,6 +14,7 @@ interface Props {
   context: string;
   knowledge?: SessionKnowledge;
   understanding?: SessionUnderstandingType;
+  trackerType?: TrackerType;
 }
 
 // Animated thinking messages for brain transfer
@@ -57,14 +59,16 @@ function ThinkingLoader() {
   );
 }
 
-export function SessionUnderstanding({ sessionId, title, context, knowledge, understanding }: Props) {
+export function SessionUnderstanding({ sessionId, title, context, knowledge, understanding, trackerType }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const generatingRef = useRef(false);
   const setSessionUnderstanding = useSessionsStore((state) => state.setSessionUnderstanding);
+  const setSuggestedWorkout = useSessionsStore((state) => state.setSuggestedWorkout);
+  const setSuggestedDiet = useSessionsStore((state) => state.setSuggestedDiet);
 
-  // Today's events are fetched separately (all events from today, not just vector-search related)
-  const todaysEvents = knowledge?.todaysEvents ?? [];
+  // Today's events from local cache - always current, no additional API calls
+  const todaysEvents = useTodaysEventsFromCache();
 
   // Generate understanding when knowledge exists but understanding doesn't
   useEffect(() => {
@@ -82,7 +86,8 @@ export function SessionUnderstanding({ sessionId, title, context, knowledge, und
     async function generateUnderstanding() {
       setIsLoading(true);
       try {
-        const result = await condenseSessionKnowledge(title, context, knowledge!);
+        // Pass trackerType to use specialized brain transfer prompt
+        const result = await condenseSessionKnowledge(title, context, knowledge!, trackerType || 'general');
         if (cancelled) return;
 
         if (result) {
@@ -92,6 +97,15 @@ export function SessionUnderstanding({ sessionId, title, context, knowledge, und
             generatedAt: new Date().toISOString(),
             inferredGoal: result.inferredGoal,
           });
+
+          // Store suggestion if returned
+          if (result.suggestion) {
+            if ('exercises' in result.suggestion) {
+              setSuggestedWorkout(sessionId, result.suggestion);
+            } else if ('meals' in result.suggestion) {
+              setSuggestedDiet(sessionId, result.suggestion);
+            }
+          }
         }
       } catch (err) {
         console.error('[SessionUnderstanding] Error:', err);
@@ -108,7 +122,7 @@ export function SessionUnderstanding({ sessionId, title, context, knowledge, und
       cancelled = true;
       generatingRef.current = false;
     };
-  }, [sessionId, title, context, knowledge, understanding, setSessionUnderstanding]);
+  }, [sessionId, title, context, knowledge, understanding, setSessionUnderstanding, setSuggestedWorkout, setSuggestedDiet, trackerType]);
 
   // Don't render if no knowledge yet
   if (!knowledge) return null;

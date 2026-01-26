@@ -9,12 +9,75 @@ interface SessionEvent {
   llmComment?: string;
 }
 
+interface SuggestedWorkoutInput {
+  exercises: {
+    name: string;
+    sets: number;
+    reps: string;
+    weight?: string;
+    notes?: string;
+  }[];
+  reason: string;
+}
+
+interface SuggestedDietInput {
+  meals: {
+    time: string;
+    suggestion: string;
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    notes?: string;
+  }[];
+  dailyTotals: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  reason: string;
+}
+
+interface SessionAnalysisInput {
+  sessionType: string;
+  relevantHistory: {
+    date: string;
+    event: string;
+    highlight?: string;
+  }[];
+  patterns: {
+    name: string;
+    description: string;
+    trend: string;
+  }[];
+  correlations: {
+    factor: string;
+    impact: string;
+    direction: string;
+  }[];
+  todaysPlan: {
+    summary: string;
+    items: {
+      suggestion: string;
+      rationale: string;
+    }[];
+  };
+  context: string;
+  userGoals?: string;
+}
+
 interface CompleteSessionInput {
   sessionTitle: string;
   sessionGoal: string;
   guide?: string;
   events: SessionEvent[];
   coachBrief?: string;
+  // New fields for analysis and suggestions
+  analysis?: SessionAnalysisInput;
+  masterSummary?: string;
+  suggestedWorkout?: SuggestedWorkoutInput;
+  suggestedDiet?: SuggestedDietInput;
 }
 
 export async function completeSession(
@@ -197,6 +260,108 @@ function formatSessionSummary(input: CompleteSessionInput): string {
       lines.push('## Session Totals');
       lines.push(totalsSection);
     }
+  }
+
+  // Session Analysis
+  if (input.analysis) {
+    lines.push('');
+    lines.push('## Session Analysis');
+    lines.push('');
+
+    // Today's plan summary
+    if (input.analysis.todaysPlan) {
+      lines.push(`**Today's Plan:** ${input.analysis.todaysPlan.summary}`);
+      if (input.analysis.todaysPlan.items.length > 0) {
+        for (const item of input.analysis.todaysPlan.items) {
+          lines.push(`- ${item.suggestion}`);
+          if (item.rationale) {
+            lines.push(`  - _${item.rationale}_`);
+          }
+        }
+      }
+      lines.push('');
+    }
+
+    // Patterns
+    if (input.analysis.patterns.length > 0) {
+      lines.push('**Patterns:**');
+      for (const pattern of input.analysis.patterns) {
+        lines.push(`- **${pattern.name}** (${pattern.trend}): ${pattern.description}`);
+      }
+      lines.push('');
+    }
+
+    // Correlations
+    if (input.analysis.correlations.length > 0) {
+      lines.push('**Correlations:**');
+      for (const corr of input.analysis.correlations) {
+        const arrow = corr.direction === 'positive' ? '↑' : '↓';
+        lines.push(`- ${corr.factor} ${arrow} ${corr.impact}`);
+      }
+      lines.push('');
+    }
+
+    // Context (condensed)
+    if (input.analysis.context) {
+      lines.push('**Context:**');
+      lines.push(input.analysis.context);
+      lines.push('');
+    }
+  }
+
+  // Suggested Workout (for gym sessions)
+  if (input.suggestedWorkout) {
+    lines.push('');
+    lines.push('## Suggested Workout');
+    lines.push('');
+    lines.push(`_${input.suggestedWorkout.reason}_`);
+    lines.push('');
+
+    for (const exercise of input.suggestedWorkout.exercises) {
+      let exerciseLine = `- **${exercise.name}**: ${exercise.sets}x${exercise.reps}`;
+      if (exercise.weight) {
+        exerciseLine += ` @ ${exercise.weight}`;
+      }
+      lines.push(exerciseLine);
+      if (exercise.notes) {
+        lines.push(`  - _${exercise.notes}_`);
+      }
+    }
+  }
+
+  // Suggested Diet (for diet sessions)
+  if (input.suggestedDiet) {
+    lines.push('');
+    lines.push('## Suggested Diet');
+    lines.push('');
+    lines.push(`_${input.suggestedDiet.reason}_`);
+    lines.push('');
+
+    for (const meal of input.suggestedDiet.meals) {
+      let mealLine = `- **${meal.time}**: ${meal.suggestion}`;
+      const macros: string[] = [];
+      if (meal.calories) macros.push(`${meal.calories} cal`);
+      if (meal.protein) macros.push(`${meal.protein}g protein`);
+      if (macros.length > 0) {
+        mealLine += ` (${macros.join(', ')})`;
+      }
+      lines.push(mealLine);
+      if (meal.notes) {
+        lines.push(`  - _${meal.notes}_`);
+      }
+    }
+
+    // Daily totals
+    lines.push('');
+    lines.push(`**Daily Totals:** ${input.suggestedDiet.dailyTotals.calories} cal | ${input.suggestedDiet.dailyTotals.protein}g protein | ${input.suggestedDiet.dailyTotals.carbs}g carbs | ${input.suggestedDiet.dailyTotals.fat}g fat`);
+  }
+
+  // Master Summary (raw markdown for gym/diet)
+  if (input.masterSummary) {
+    lines.push('');
+    lines.push('## Tracking Summary');
+    lines.push('');
+    lines.push(input.masterSummary);
   }
 
   return lines.join('\n');

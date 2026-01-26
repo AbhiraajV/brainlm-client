@@ -2,17 +2,20 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Edit2, Trash2, Check } from 'lucide-react';
 import { useSessionsStore, selectSessionById } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
 import { SessionEventInput } from '@/components/sessions/SessionEventInput';
-import { SessionKnowledge } from '@/components/sessions/SessionKnowledge';
-import { SessionUnderstanding } from '@/components/sessions/SessionUnderstanding';
+import { SessionInfoCard } from '@/components/sessions/SessionInfoCard';
 import { EventSuggestion } from '@/components/sessions/EventSuggestion';
+import { MasterSummaryCard } from '@/components/sessions/MasterSummaryCard';
+import { SuggestedWorkout } from '@/components/sessions/SuggestedWorkout';
+import { SuggestedDiet } from '@/components/sessions/SuggestedDiet';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
+import { generateWorkoutSuggestion, generateDietSuggestion } from '@/server/actions/generate-suggestion.actions';
 import { completeSession } from '@/server/actions/session-complete.actions';
 import { BackButton } from '@/components/ui/BackButton';
-import type { EventDraft, Session } from '@/lib/sessions/types';
+import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
+import type { EventDraft, Session, TrackerType } from '@/lib/sessions/types';
 
 function formatTimeAgo(isoDate: string): string {
   const date = new Date(isoDate);
@@ -43,86 +46,8 @@ function EventDraftRow({
   sessionId: string;
   onRetry: (eventId: string) => void;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(event.content);
-  const { updateEventDraft, deleteEventDraft, setEventLlmComment } = useSessionsStore();
-
-  const handleSave = () => {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== event.content) {
-      updateEventDraft(sessionId, event.id, trimmed);
-    }
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setEditValue(event.content);
-    setIsEditing(false);
-  };
-
-  const handleDelete = () => {
-    deleteEventDraft(sessionId, event.id);
-  };
-
-  const handleDeleteComment = () => {
-    setEventLlmComment(sessionId, event.id, null, 'pending');
-  };
-
-  if (isEditing) {
-    return (
-      <div className="px-5 sm:px-7 py-4 bg-[var(--color-surface)]">
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave();
-              if (e.key === 'Escape') handleCancel();
-            }}
-            autoFocus
-            className="
-              flex-1 px-3 py-2
-              bg-[var(--color-bg)]
-              border border-[var(--color-accent)]
-              rounded-[var(--radius-sm)]
-              text-[var(--color-text)]
-              focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/20
-            "
-          />
-          <button
-            onClick={handleSave}
-            className="
-              px-3 py-2
-              text-sm font-medium
-              text-white
-              bg-[var(--color-accent)]
-              rounded-[var(--radius-sm)]
-              transition-colors
-              hover:opacity-90
-            "
-          >
-            Save
-          </button>
-          <button
-            onClick={handleCancel}
-            className="
-              px-3 py-2
-              text-sm
-              text-[var(--color-muted)]
-              transition-colors
-              hover:text-[var(--color-text)]
-            "
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <article className="px-5 sm:px-7 py-4 bg-[var(--color-surface)] group">
+    <article className="px-5 sm:px-7 py-4 bg-[var(--color-surface)]">
       <div className="flex items-start gap-3">
         {/* Event dot */}
         <div className="w-2.5 h-2.5 rounded-full bg-[var(--color-line)] flex-shrink-0 mt-1.5" />
@@ -140,50 +65,17 @@ function EventDraftRow({
             comment={event.llmComment}
             error={event.llmCommentError}
             onRetry={() => onRetry(event.id)}
-            onDelete={handleDeleteComment}
           />
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => setIsEditing(true)}
-            className="
-              p-1.5
-              text-[var(--color-muted)]
-              rounded
-              transition-colors
-              hover:text-[var(--color-text)]
-              hover:bg-[var(--color-bg)]
-            "
-            aria-label="Edit event"
-          >
-            <Edit2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleDelete}
-            className="
-              p-1.5
-              text-[var(--color-muted)]
-              rounded
-              transition-colors
-              hover:text-[var(--color-error)]
-              hover:bg-[var(--color-bg)]
-            "
-            aria-label="Delete event"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </article>
   );
 }
 
-// Helper to get domain knowledge from understanding content
-// The brain transfer content IS the domain knowledge - no extraction needed
-function getDomainKnowledge(understandingContent?: string): string {
-  return understandingContent || '';
+// Helper to get domain knowledge from analysis or understanding
+// Prefer analysis.context (new) over understanding.content (legacy)
+function getDomainKnowledge(analysisContext?: string, understandingContent?: string): string {
+  return analysisContext || understandingContent || '';
 }
 
 export default function SessionDetailPage() {
@@ -195,7 +87,14 @@ export default function SessionDetailPage() {
   const session = useSessionsStore(selectSessionById(sessionId));
   const setEventLlmComment = useSessionsStore((s) => s.setEventLlmComment);
   const markSessionCompleted = useSessionsStore((s) => s.markSessionCompleted);
+  const setSuggestedWorkout = useSessionsStore((s) => s.setSuggestedWorkout);
+  const setSuggestedDiet = useSessionsStore((s) => s.setSuggestedDiet);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false);
+  const [isGeneratingDiet, setIsGeneratingDiet] = useState(false);
+
+  // Today's events from local cache - always current
+  const todaysEventsFromCache = useTodaysEventsFromCache();
 
   // Generate LLM suggestion for an event
   const generateSuggestion = useCallback(async (eventId: string, session: Session) => {
@@ -205,10 +104,15 @@ export default function SessionDetailPage() {
     // Mark as generating
     setEventLlmComment(session.id, eventId, null, 'generating');
 
-    // Get domain knowledge from brain transfer
-    const domainKnowledge = getDomainKnowledge(session.understanding?.content);
-    const guide = session.understanding?.guide || 'Coach';
-    const goal = session.sessionContext || session.understanding?.inferredGoal || '';
+    // Get domain knowledge from analysis (preferred) or understanding (legacy)
+    const domainKnowledge = getDomainKnowledge(session.analysis?.context, session.understanding?.content);
+    // Get guide name from analysis sessionType or understanding
+    const guideMap: Record<string, string> = { gym: 'Gym Coach', diet: 'Nutrition Coach', addiction: 'Recovery Coach', general: 'Coach' };
+    const guide = session.analysis?.sessionType
+      ? guideMap[session.analysis.sessionType]
+      : (session.understanding?.guide || 'Coach');
+    const goal = session.sessionContext || session.analysis?.userGoals || session.understanding?.inferredGoal || '';
+    const trackerType: TrackerType = session.analysis?.sessionType || session.trackerType || 'general';
 
     // Get previous events (all events before this one chronologically)
     const eventIndex = session.events.findIndex(e => e.id === eventId);
@@ -216,8 +120,8 @@ export default function SessionDetailPage() {
       .slice(0, eventIndex)
       .map(e => ({ content: e.content, createdAt: e.createdAt, llmComment: e.llmComment }));
 
-    // Get today's events and yesterday's review from knowledge (displayed directly, also passed to commenting LLM)
-    const todaysEvents = session.knowledge?.todaysEvents?.map(e => ({
+    // Use today's events from local cache (always current, no API calls needed)
+    const todaysEvents = todaysEventsFromCache.map(e => ({
       content: e.content,
       occurredAt: e.occurredAt,
     }));
@@ -240,20 +144,23 @@ export default function SessionDetailPage() {
         goal,
         guide,
         domainKnowledge,
+        trackerType,
+        session.masterSummary,
         todaysEvents,
         yesterdaysReview,
         todaysPlan
       );
 
-      if ('suggestion' in result) {
-        setEventLlmComment(session.id, eventId, result.suggestion, 'completed');
+      if ('comment' in result) {
+        // Pass masterSummary to update if provided (for diet/gym trackers)
+        setEventLlmComment(session.id, eventId, result.comment, 'completed', undefined, result.masterSummary);
       } else {
         setEventLlmComment(session.id, eventId, null, 'failed', result.error);
       }
     } catch (err) {
       setEventLlmComment(session.id, eventId, null, 'failed', 'Network error');
     }
-  }, [setEventLlmComment]);
+  }, [setEventLlmComment, todaysEventsFromCache]);
 
   // Handle retry for failed suggestions
   const handleRetry = useCallback((eventId: string) => {
@@ -265,18 +172,56 @@ export default function SessionDetailPage() {
   const handleCompleteSession = async () => {
     if (!session || isCompleting) return;
 
+    // Get guide from analysis or understanding
+    const guideMap: Record<string, string> = { gym: 'Gym Coach', diet: 'Nutrition Coach', addiction: 'Recovery Coach', general: 'Coach' };
+    const guide = session.analysis?.sessionType
+      ? guideMap[session.analysis.sessionType]
+      : session.understanding?.guide;
+
     setIsCompleting(true);
     try {
       const result = await completeSession({
         sessionTitle: session.title,
-        sessionGoal: session.sessionContext || session.understanding?.inferredGoal || '',
-        guide: session.understanding?.guide,
+        sessionGoal: session.sessionContext || session.analysis?.userGoals || session.understanding?.inferredGoal || '',
+        guide,
         events: session.events.map(e => ({
           content: e.content,
           createdAt: e.createdAt,
           llmComment: e.llmComment,
         })),
-        coachBrief: session.understanding?.content,
+        coachBrief: session.analysis?.context || session.understanding?.content,
+        // Include session analysis and suggestions
+        analysis: session.analysis ? {
+          sessionType: session.analysis.sessionType,
+          relevantHistory: session.analysis.relevantHistory.map(h => ({
+            date: h.date,
+            event: h.event,
+            highlight: h.highlight,
+          })),
+          patterns: session.analysis.patterns.map(p => ({
+            name: p.name,
+            description: p.description,
+            trend: p.trend,
+          })),
+          correlations: session.analysis.correlations.map(c => ({
+            factor: c.factor,
+            impact: c.impact,
+            direction: c.direction,
+          })),
+          todaysPlan: session.analysis.todaysPlan,
+          context: session.analysis.context,
+          userGoals: session.analysis.userGoals,
+        } : undefined,
+        masterSummary: session.masterSummary,
+        suggestedWorkout: session.suggestedWorkout ? {
+          exercises: session.suggestedWorkout.exercises,
+          reason: session.suggestedWorkout.reason,
+        } : undefined,
+        suggestedDiet: session.suggestedDiet ? {
+          meals: session.suggestedDiet.meals,
+          dailyTotals: session.suggestedDiet.dailyTotals,
+          reason: session.suggestedDiet.reason,
+        } : undefined,
       });
 
       if (result.success) {
@@ -287,6 +232,49 @@ export default function SessionDetailPage() {
       }
     } finally {
       setIsCompleting(false);
+    }
+  };
+
+  // Handle generating workout suggestion
+  const handleGenerateWorkout = async () => {
+    if (!session?.knowledge || isGeneratingWorkout) return;
+
+    setIsGeneratingWorkout(true);
+    try {
+      const result = await generateWorkoutSuggestion(
+        session.title,
+        session.sessionContext || session.analysis?.userGoals || '',
+        session.knowledge,
+        session.analysis  // Pass analysis so todaysPlan is used as source of truth
+      );
+      if (result) {
+        setSuggestedWorkout(session.id, result);
+      }
+    } catch (err) {
+      console.error('[handleGenerateWorkout] Error:', err);
+    } finally {
+      setIsGeneratingWorkout(false);
+    }
+  };
+
+  // Handle generating diet suggestion
+  const handleGenerateDiet = async () => {
+    if (!session?.knowledge || isGeneratingDiet) return;
+
+    setIsGeneratingDiet(true);
+    try {
+      const result = await generateDietSuggestion(
+        session.title,
+        session.sessionContext || session.analysis?.userGoals || '',
+        session.knowledge
+      );
+      if (result) {
+        setSuggestedDiet(session.id, result);
+      }
+    } catch (err) {
+      console.error('[handleGenerateDiet] Error:', err);
+    } finally {
+      setIsGeneratingDiet(false);
     }
   };
 
@@ -340,98 +328,62 @@ export default function SessionDetailPage() {
   return (
     <>
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
-        {/* Header with session title and guide */}
+        {/* Header */}
         <header
           className="
             sticky top-0 z-10
-            h-14
-            flex items-center justify-between
+            h-12
+            flex items-center
             px-5 sm:px-7
             bg-[var(--color-surface)]
             border-b border-[var(--color-line)]
           "
         >
-          <h1 className="font-serif font-semibold text-lg text-[var(--color-text)] truncate">
-            {session.title}
-          </h1>
-
-          <div className="flex items-center gap-3">
-            {/* Complete Session Button */}
-            {!session.isCompleted && session.events.length > 0 && (
-              <button
-                onClick={handleCompleteSession}
-                disabled={isCompleting}
-                className="
-                  py-1.5 px-3
-                  text-xs font-medium
-                  text-white
-                  bg-[var(--color-accent)]
-                  rounded-[var(--radius-sm)]
-                  transition-all duration-200
-                  hover:opacity-90
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  flex items-center gap-1.5
-                "
-              >
-                {isCompleting ? (
-                  <>
-                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    Complete
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* Guide indicator */}
-            {session.understanding?.guide && (
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-                  <div className="absolute inset-0 w-2 h-2 rounded-full bg-[var(--color-success)] animate-ping opacity-75" />
-                </div>
-                <span className="text-xs text-[var(--color-muted)]">
-                  {session.understanding.guide}
-                </span>
-              </div>
-            )}
-          </div>
+          <span className="text-sm font-medium text-[var(--color-muted)]">
+            Sessions
+          </span>
         </header>
 
 
         {/* Main content */}
-        <main className="flex-1 container-padding py-6 pb-48">
-          {/* Session goal (if exists) */}
-          {session.sessionContext && (
-            <div className="mb-4">
-              <span className="text-micro uppercase tracking-wider text-[var(--color-muted)]">
-                Session Goal
-              </span>
-              <p className="text-[var(--color-text)] text-sm mt-1 max-w-prose">
-                {session.sessionContext}
-              </p>
-            </div>
-          )}
-
-          {/* Session Knowledge */}
-          <SessionKnowledge
-            sessionId={session.id}
-            title={session.title}
-            context={session.sessionContext}
-            knowledge={session.knowledge}
-          />
-
-          {/* Session Understanding */}
-          <SessionUnderstanding
+        <main className="flex-1 container-padding py-4 pb-48">
+          {/* Session Info Card - combines title, goal, coach, knowledge, context */}
+          <SessionInfoCard
             sessionId={session.id}
             title={session.title}
             context={session.sessionContext}
             knowledge={session.knowledge}
             understanding={session.understanding}
+            analysis={session.analysis}
+            trackerType={session.trackerType}
+            isCompleted={session.isCompleted}
+            hasEvents={session.events.length > 0}
+            onComplete={handleCompleteSession}
+            isCompleting={isCompleting}
+          />
+
+          {/* Suggested Workout (for gym tracker - show generate button when knowledge exists) */}
+          {(session.analysis?.sessionType === 'gym' || session.trackerType === 'gym') && (
+            <SuggestedWorkout
+              suggestedWorkout={session.suggestedWorkout}
+              onGenerate={session.knowledge ? handleGenerateWorkout : undefined}
+              isGenerating={isGeneratingWorkout}
+            />
+          )}
+
+          {/* Suggested Diet (for diet tracker - show generate button when knowledge exists) */}
+          {(session.analysis?.sessionType === 'diet' || session.trackerType === 'diet') && (
+            <SuggestedDiet
+              suggestedDiet={session.suggestedDiet}
+              onGenerate={session.knowledge ? handleGenerateDiet : undefined}
+              isGenerating={isGeneratingDiet}
+            />
+          )}
+
+          {/* Master Summary Card (for diet/gym trackers) */}
+          <MasterSummaryCard
+            summary={session.masterSummary}
+            trackerType={session.trackerType || 'general'}
           />
 
           {/* Events list */}

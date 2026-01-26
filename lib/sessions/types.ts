@@ -1,5 +1,7 @@
 // Sessions Types
 
+export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general';
+
 export interface EventDraft {
   id: string;
   content: string;
@@ -72,6 +74,89 @@ export interface SessionUnderstanding {
   inferredGoal?: string;  // When user didn't provide explicit goal
 }
 
+export interface SuggestedWorkout {
+  exercises: {
+    name: string;
+    sets: number;
+    reps: string;        // e.g., "8-10" or "5"
+    weight?: string;     // e.g., "80kg" or "BW+10kg"
+    notes?: string;      // e.g., "Warm-up", "Working sets"
+  }[];
+  reason: string;        // Why this workout is suggested
+  generatedAt: string;   // ISO timestamp
+}
+
+export interface SuggestedDiet {
+  meals: {
+    time: string;           // "Breakfast", "Lunch", "Dinner", "Snack"
+    suggestion: string;     // "2 eggs with toast and avocado"
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    notes?: string;
+  }[];
+  dailyTotals: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  reason: string;
+  generatedAt: string;
+}
+
+// Universal Session Analysis - domain-agnostic structured context
+export interface SessionAnalysis {
+  // Detected session type (used to select coach prompt)
+  sessionType: TrackerType;
+
+  // Timeline of relevant events with context
+  relevantHistory: {
+    date: string;
+    event: string;
+    highlight?: string;        // Key metric or achievement (e.g., "Bench PR 82.5kg", "1800 cal")
+    preTriggers?: string[];    // What happened before (sleep, stress, etc.)
+    postEffects?: string[];    // What happened after (soreness, energy, etc.)
+  }[];
+
+  // Detected patterns with trend analysis
+  patterns: {
+    name: string;              // e.g., "Workout Split", "Meal Timing", "Craving Triggers"
+    description: string;       // What the pattern is
+    trend: 'improving' | 'stable' | 'declining' | 'unknown';
+    evidence: string[];        // Specific data points supporting this
+    confidence: 'low' | 'medium' | 'high';
+  }[];
+
+  // Cross-domain correlations
+  correlations: {
+    factor: string;            // e.g., "Sleep > 7hrs", "After alcohol"
+    impact: string;            // e.g., "+15% strength", "2x craving likelihood"
+    direction: 'positive' | 'negative';
+    occurrences: number;       // How many times observed
+  }[];
+
+  // Today's actionable plan
+  todaysPlan: {
+    summary: string;           // Brief overview
+    items: {
+      suggestion: string;      // What to do
+      rationale: string;       // Why (based on data)
+      metrics: { key: string; value: string }[];  // Relevant numbers (weight, calories, etc.)
+    }[];
+  };
+
+  // Condensed context for the coach (markdown)
+  context: string;
+
+  // User's goals/targets extracted from UOM
+  userGoals?: string;
+  userTargets?: { key: string; value: string }[];
+
+  generatedAt: string;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -82,8 +167,13 @@ export interface Session {
   createdBy: 'manual' | 'automatic';
   events: EventDraft[];
   knowledge?: SessionKnowledge; // Retrieved knowledge
-  understanding?: SessionUnderstanding; // Condensed session context
+  understanding?: SessionUnderstanding; // Condensed session context (legacy)
+  analysis?: SessionAnalysis; // Universal structured analysis
   isCompleted?: boolean; // true when session is finalized
+  trackerType?: TrackerType; // Specialized tracker type (diet, gym, addiction, general)
+  masterSummary?: string; // Master .md content for diet/gym trackers
+  suggestedWorkout?: SuggestedWorkout; // AI-suggested workout for gym sessions
+  suggestedDiet?: SuggestedDiet; // AI-suggested diet for diet sessions
 }
 
 export interface SessionsState {
@@ -100,14 +190,20 @@ export interface SessionsActions {
   setSessionKnowledge: (sessionId: string, knowledge: SessionKnowledge) => void;
   setSeed: (sessionId: string, seed: string) => void;
   setSessionUnderstanding: (sessionId: string, understanding: SessionUnderstanding) => void;
+  setSessionAnalysis: (sessionId: string, analysis: SessionAnalysis) => void;
   setEventLlmComment: (
     sessionId: string,
     eventId: string,
     comment: string | null,
     status: 'pending' | 'generating' | 'completed' | 'failed',
-    error?: string
+    error?: string,
+    masterSummary?: string
   ) => void;
   markSessionCompleted: (sessionId: string) => void;
+  setTrackerType: (sessionId: string, type: TrackerType) => void;
+  updateMasterSummary: (sessionId: string, summary: string) => void;
+  setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout) => void;
+  setSuggestedDiet: (sessionId: string, diet: SuggestedDiet) => void;
 }
 
 export type SessionsStore = SessionsState & SessionsActions;

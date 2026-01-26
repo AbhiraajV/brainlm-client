@@ -4,6 +4,8 @@ import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { useSessionsStore } from '@/store/sessions.store';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
+import type { TrackerType } from '@/lib/sessions/types';
+import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
 
 // Use useLayoutEffect on client, useEffect on server
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -25,6 +27,9 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
   const setEventLlmComment = useSessionsStore((s) => s.setEventLlmComment);
   const sessions = useSessionsStore((s) => s.sessions);
   const session = sessions.find(s => s.id === sessionId);
+
+  // Today's events from local cache - always current
+  const todaysEventsFromCache = useTodaysEventsFromCache();
 
   // Auto-resize textarea when text changes
   useIsomorphicLayoutEffect(() => {
@@ -64,6 +69,7 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
     const domainKnowledge = getDomainKnowledge(freshSession.understanding?.content);
     const guide = freshSession.understanding?.guide || 'Coach';
     const goal = freshSession.sessionContext || freshSession.understanding?.inferredGoal || '';
+    const trackerType: TrackerType = freshSession.trackerType || 'general';
 
     // Get previous events (all events BEFORE the one we just added)
     const previousEvents = freshSession.events
@@ -74,14 +80,11 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
         llmComment: e.llmComment,
       }));
 
-    // Get today's events - filter to only include events from TODAY
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const todaysEvents = freshSession.knowledge?.todaysEvents
-      ?.filter(e => e.occurredAt.startsWith(today))
-      ?.map(e => ({
-        content: e.content,
-        occurredAt: e.occurredAt,
-      }));
+    // Use today's events from local cache (always current, no API calls needed)
+    const todaysEvents = todaysEventsFromCache.map(e => ({
+      content: e.content,
+      occurredAt: e.occurredAt,
+    }));
     const yesterdaysReview = freshSession.knowledge?.yesterdaysReview
       ? { summary: freshSession.knowledge.yesterdaysReview.summary, periodKey: freshSession.knowledge.yesterdaysReview.periodKey }
       : undefined;
@@ -96,12 +99,15 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
         goal,
         guide,
         domainKnowledge,
+        trackerType,
+        freshSession.masterSummary,
         todaysEvents,
         yesterdaysReview
       );
 
-      if ('suggestion' in result) {
-        setEventLlmComment(sessionId, eventId, result.suggestion, 'completed');
+      if ('comment' in result) {
+        // Pass masterSummary to update if provided (for diet/gym trackers)
+        setEventLlmComment(sessionId, eventId, result.comment, 'completed', undefined, result.masterSummary);
       } else {
         setEventLlmComment(sessionId, eventId, null, 'failed', result.error);
       }
