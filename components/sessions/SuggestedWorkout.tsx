@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function SuggestedWorkout({ suggestedWorkout, onGenerate, isGenerating }: Props) {
-  const [isExpanded, setIsExpanded] = useState(!!suggestedWorkout);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isReasonExpanded, setIsReasonExpanded] = useState(false);
 
   // Show generate button if no workout and onGenerate is provided
@@ -139,8 +139,8 @@ export function SuggestedWorkout({ suggestedWorkout, onGenerate, isGenerating }:
             </div>
           )}
 
-          {/* Regenerate button */}
-          {onGenerate && (
+          {/* Regenerate button - commented out for now */}
+          {/* {onGenerate && (
             <button
               onClick={onGenerate}
               disabled={isGenerating}
@@ -153,7 +153,7 @@ export function SuggestedWorkout({ suggestedWorkout, onGenerate, isGenerating }:
               )}
               Regenerate
             </button>
-          )}
+          )} */}
         </div>
       )}
     </div>

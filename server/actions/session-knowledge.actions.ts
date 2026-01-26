@@ -35,6 +35,8 @@ import type {
   KnowledgeReview,
   KnowledgeDailyPlan,
   TrackerType,
+  MenstrualCycleInfo,
+  MenstrualCyclePhase,
 } from '@/lib/sessions/types';
 import { inferTrackerType } from '@/server/prompts/tracker-prompts';
 
@@ -319,6 +321,164 @@ function dedupeWithSet<T extends { id: string }>(items: T[], existingIds: Set<st
     existingIds.add(item.id);
     return true;
   });
+}
+
+// ============================================================================
+// Menstrual Cycle Functions
+// ============================================================================
+
+/**
+ * Calculate current cycle phase based on last period start date
+ */
+function calculateCyclePhase(
+  lastPeriodStart: string,
+  cycleLengthDays: number = 28
+): { phase: MenstrualCyclePhase; dayOfCycle: number } {
+  const start = new Date(lastPeriodStart);
+  const today = new Date();
+  const daysSinceStart = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const dayOfCycle = (daysSinceStart % cycleLengthDays) + 1;
+
+  // Phase boundaries (standard 28-day cycle, adjusted proportionally for other lengths)
+  const menstrualEnd = Math.round(5 * cycleLengthDays / 28);
+  const follicularEnd = Math.round(14 * cycleLengthDays / 28);
+  const ovulationEnd = Math.round(17 * cycleLengthDays / 28);
+
+  if (dayOfCycle <= menstrualEnd) return { phase: 'menstrual', dayOfCycle };
+  if (dayOfCycle <= follicularEnd) return { phase: 'follicular', dayOfCycle };
+  if (dayOfCycle <= ovulationEnd) return { phase: 'ovulation', dayOfCycle };
+  return { phase: 'luteal', dayOfCycle };
+}
+
+/**
+ * Extract menstrual cycle info from user baseline
+ * Looks for JSON object with menstrual_cycle key or specific patterns
+ */
+function extractCycleFromBaseline(baseline: string | null): MenstrualCycleInfo | null {
+  if (!baseline) return null;
+
+  try {
+    // Try to find menstrual_cycle JSON in baseline
+    const jsonMatch = baseline.match(/"menstrual_cycle"\s*:\s*(\{[^}]+\})/);
+    if (jsonMatch) {
+      const cycleData = JSON.parse(jsonMatch[1]);
+      if (cycleData.lastPeriodStart) {
+        const cycleLengthDays = cycleData.cycleLengthDays || 28;
+        const { phase, dayOfCycle } = calculateCyclePhase(cycleData.lastPeriodStart, cycleLengthDays);
+        return {
+          tracking: true,
+          lastPeriodStart: cycleData.lastPeriodStart,
+          cycleLengthDays,
+          currentPhase: phase,
+          dayOfCycle,
+        };
+      }
+    }
+
+    // Try to parse entire baseline as JSON
+    if (baseline.trim().startsWith('{')) {
+      const parsed = JSON.parse(baseline);
+      if (parsed.menstrual_cycle?.lastPeriodStart) {
+        const cycleLengthDays = parsed.menstrual_cycle.cycleLengthDays || 28;
+        const { phase, dayOfCycle } = calculateCyclePhase(
+          parsed.menstrual_cycle.lastPeriodStart,
+          cycleLengthDays
+        );
+        return {
+          tracking: true,
+          lastPeriodStart: parsed.menstrual_cycle.lastPeriodStart,
+          cycleLengthDays,
+          currentPhase: phase,
+          dayOfCycle,
+        };
+      }
+    }
+  } catch {
+    // JSON parsing failed, try text patterns
+  }
+
+  // Look for text patterns like "period started 2024-01-15" or "cycle day 22"
+  const periodStartMatch = baseline.match(/(?:period|cycle)\s*(?:started|began)\s*(?:on\s*)?(\d{4}-\d{2}-\d{2})/i);
+  if (periodStartMatch) {
+    const { phase, dayOfCycle } = calculateCyclePhase(periodStartMatch[1]);
+    return {
+      tracking: true,
+      lastPeriodStart: periodStartMatch[1],
+      cycleLengthDays: 28,
+      currentPhase: phase,
+      dayOfCycle,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Extract cycle info from yesterday's review or today's events
+ * Looks for mentions like "day 3 of period", "on my period", "started period today"
+ */
+function extractCycleFromRecentContext(
+  yesterdaysReview: { summary: string } | null,
+  todaysEvents: { content: string }[]
+): MenstrualCycleInfo | null {
+  const textsToCheck = [
+    yesterdaysReview?.summary || '',
+    ...todaysEvents.map(e => e.content),
+  ].join(' ');
+
+  if (!textsToCheck) return null;
+
+  // "day X of period/cycle"
+  const dayMatch = textsToCheck.match(/day\s*(\d+)\s*(?:of\s*)?(?:my\s*)?(?:period|cycle)/i);
+  if (dayMatch) {
+    const dayOfCycle = parseInt(dayMatch[1], 10);
+    // Estimate phase from day
+    let phase: MenstrualCyclePhase;
+    if (dayOfCycle <= 5) phase = 'menstrual';
+    else if (dayOfCycle <= 14) phase = 'follicular';
+    else if (dayOfCycle <= 17) phase = 'ovulation';
+    else phase = 'luteal';
+
+    return {
+      tracking: true,
+      cycleLengthDays: 28,
+      currentPhase: phase,
+      dayOfCycle,
+    };
+  }
+
+  // "on my period", "started period", "period started"
+  const onPeriodMatch = textsToCheck.match(/(?:on\s*my\s*period|started\s*(?:my\s*)?period|period\s*started)/i);
+  if (onPeriodMatch) {
+    return {
+      tracking: true,
+      cycleLengthDays: 28,
+      currentPhase: 'menstrual',
+      dayOfCycle: 1, // Assume day 1 if just mentioned
+    };
+  }
+
+  // "luteal phase", "follicular phase", etc.
+  const phaseMatch = textsToCheck.match(/(menstrual|follicular|ovulation|luteal)\s*phase/i);
+  if (phaseMatch) {
+    const phase = phaseMatch[1].toLowerCase() as MenstrualCyclePhase;
+    // Estimate day based on phase
+    let dayOfCycle: number;
+    switch (phase) {
+      case 'menstrual': dayOfCycle = 3; break;
+      case 'follicular': dayOfCycle = 10; break;
+      case 'ovulation': dayOfCycle = 15; break;
+      case 'luteal': dayOfCycle = 22; break;
+    }
+    return {
+      tracking: true,
+      cycleLengthDays: 28,
+      currentPhase: phase,
+      dayOfCycle,
+    };
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -696,6 +856,19 @@ export async function fetchSessionKnowledge(
       occurredAt: e.occurredAt.toISOString(),
     }));
 
+    // Extract menstrual cycle phase from multiple sources (priority order)
+    // 1. User baseline (most reliable if set)
+    // 2. Yesterday's review (e.g., "Day 3 of period")
+    // 3. Today's events (e.g., "started period today")
+    let cyclePhase: MenstrualCycleInfo | null = null;
+    cyclePhase = extractCycleFromBaseline(user.baseline);
+    if (!cyclePhase) {
+      cyclePhase = extractCycleFromRecentContext(
+        yesterdaysReview ? { summary: yesterdaysReview.summary } : null,
+        todaysEvents.map(e => ({ content: e.content }))
+      );
+    }
+
     const knowledge: SessionKnowledge = {
       retrievedAt: new Date().toISOString(),
       seed,
@@ -708,6 +881,7 @@ export async function fetchSessionKnowledge(
       todaysPlan: knowledgeTodaysPlan,
       yesterdaysReview: knowledgeYesterdaysReview,
       todaysEvents: knowledgeTodaysEvents,
+      cyclePhase: cyclePhase ?? undefined,
     };
 
     const elapsed = Date.now() - startTime;
@@ -724,7 +898,9 @@ export async function fetchSessionKnowledge(
       `hasBaseline=${!!knowledge.userBaseline}`,
       `hasTodaysPlan=${!!knowledge.todaysPlan}`,
       `hasYesterdaysReview=${!!knowledge.yesterdaysReview}`,
-      `trackerType=${trackerType}`
+      `trackerType=${trackerType}`,
+      `cyclePhase=${knowledge.cyclePhase?.currentPhase ?? 'none'}`,
+      `cycleDay=${knowledge.cyclePhase?.dayOfCycle ?? 'n/a'}`
     );
 
     return { seed, knowledge, trackerType };

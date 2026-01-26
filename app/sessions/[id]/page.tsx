@@ -16,6 +16,7 @@ import { completeSession } from '@/server/actions/session-complete.actions';
 import { BackButton } from '@/components/ui/BackButton';
 import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
 import type { EventDraft, Session, TrackerType } from '@/lib/sessions/types';
+import { Trash2 } from 'lucide-react';
 
 function formatTimeAgo(isoDate: string): string {
   const date = new Date(isoDate);
@@ -41,10 +42,12 @@ function EventDraftRow({
   event,
   sessionId,
   onRetry,
+  onDelete,
 }: {
   event: EventDraft;
   sessionId: string;
   onRetry: (eventId: string) => void;
+  onDelete: (eventId: string) => void;
 }) {
   return (
     <article className="px-5 sm:px-7 py-4 bg-[var(--color-surface)]">
@@ -55,7 +58,16 @@ function EventDraftRow({
         {/* Content */}
         <div className="flex-1 min-w-0">
           <p className="text-[var(--color-text)] leading-relaxed">{event.content}</p>
-          <p className="text-micro mt-2">{formatTimeAgo(event.createdAt)}</p>
+          <div className="flex items-center gap-3 mt-2">
+            <p className="text-micro">{formatTimeAgo(event.createdAt)}</p>
+            <button
+              onClick={() => onDelete(event.id)}
+              className="text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors"
+              aria-label="Delete event"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           {/* LLM Suggestion */}
           <EventSuggestion
@@ -89,6 +101,7 @@ export default function SessionDetailPage() {
   const markSessionCompleted = useSessionsStore((s) => s.markSessionCompleted);
   const setSuggestedWorkout = useSessionsStore((s) => s.setSuggestedWorkout);
   const setSuggestedDiet = useSessionsStore((s) => s.setSuggestedDiet);
+  const deleteEventDraft = useSessionsStore((s) => s.deleteEventDraft);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false);
   const [isGeneratingDiet, setIsGeneratingDiet] = useState(false);
@@ -134,6 +147,9 @@ export default function SessionDetailPage() {
       ? { renderedMarkdown: session.knowledge.todaysPlan.renderedMarkdown }
       : undefined;
 
+    // Get menstrual cycle phase from knowledge (if tracking)
+    const cyclePhase = session.knowledge?.cyclePhase;
+
     try {
       const result = await generateEventSuggestion(
         session.id,
@@ -148,7 +164,8 @@ export default function SessionDetailPage() {
         session.masterSummary,
         todaysEvents,
         yesterdaysReview,
-        todaysPlan
+        todaysPlan,
+        cyclePhase
       );
 
       if ('comment' in result) {
@@ -167,6 +184,12 @@ export default function SessionDetailPage() {
     if (!session) return;
     generateSuggestion(eventId, session);
   }, [session, generateSuggestion]);
+
+  // Handle delete event
+  const handleDelete = useCallback((eventId: string) => {
+    if (!session) return;
+    deleteEventDraft(session.id, eventId);
+  }, [session, deleteEventDraft]);
 
   // Handle session completion
   const handleCompleteSession = async () => {
@@ -328,25 +351,8 @@ export default function SessionDetailPage() {
   return (
     <>
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
-        {/* Header */}
-        <header
-          className="
-            sticky top-0 z-10
-            h-12
-            flex items-center
-            px-5 sm:px-7
-            bg-[var(--color-surface)]
-            border-b border-[var(--color-line)]
-          "
-        >
-          <span className="text-sm font-medium text-[var(--color-muted)]">
-            Sessions
-          </span>
-        </header>
-
-
         {/* Main content */}
-        <main className="flex-1 container-padding py-4 pb-48">
+        <main className="flex-1 container-padding pb-48">
           {/* Session Info Card - combines title, goal, coach, knowledge, context */}
           <SessionInfoCard
             sessionId={session.id}
@@ -395,6 +401,7 @@ export default function SessionDetailPage() {
                   event={event}
                   sessionId={session.id}
                   onRetry={handleRetry}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>

@@ -2,6 +2,16 @@
 
 export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general';
 
+export type MenstrualCyclePhase = 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
+
+export interface MenstrualCycleInfo {
+  tracking: boolean;
+  lastPeriodStart?: string;  // ISO date
+  cycleLengthDays: number;   // default 28
+  currentPhase?: MenstrualCyclePhase;
+  dayOfCycle?: number;
+}
+
 export interface EventDraft {
   id: string;
   content: string;
@@ -65,6 +75,8 @@ export interface SessionKnowledge {
   yesterdaysReview?: KnowledgeReview; // Yesterday's review
   // Today's events (all events from today, not just vector-search related)
   todaysEvents?: KnowledgeEvent[];
+  // Menstrual cycle phase (if tracking enabled for female users)
+  cyclePhase?: MenstrualCycleInfo;
 }
 
 export interface SessionUnderstanding {

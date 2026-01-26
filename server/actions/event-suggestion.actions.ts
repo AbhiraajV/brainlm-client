@@ -11,7 +11,7 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { TrackerType } from '@/lib/sessions/types';
+import type { TrackerType, MenstrualCycleInfo } from '@/lib/sessions/types';
 import {
   getEventCoachPrompt,
   hasMasterSummary,
@@ -61,6 +61,7 @@ export interface EventSuggestionResult {
  * @param todaysEvents - All events from today (optional)
  * @param yesterdaysReview - Yesterday's review summary (optional)
  * @param todaysPlan - Today's daily plan with focus areas and targets (optional)
+ * @param cyclePhase - Menstrual cycle phase info for female users (optional)
  * @returns The suggestion with comment and optional masterSummary, or an error
  */
 export async function generateEventSuggestion(
@@ -76,7 +77,8 @@ export async function generateEventSuggestion(
   currentMasterSummary?: string,
   todaysEvents?: TodayEvent[],
   yesterdaysReview?: YesterdaysReview,
-  todaysPlan?: TodaysPlan
+  todaysPlan?: TodaysPlan,
+  cyclePhase?: MenstrualCycleInfo
 ): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
@@ -113,6 +115,9 @@ export async function generateEventSuggestion(
     ? `YESTERDAY (${yesterdaysReview.periodKey}):\n${yesterdaysReview.summary}`
     : '';
 
+  // Format menstrual cycle phase section (if tracking)
+  const cyclePhaseSection = formatCyclePhaseSection(cyclePhase);
+
   // Get the appropriate prompt for this tracker type
   const basePrompt = getEventCoachPrompt(trackerType);
 
@@ -121,6 +126,7 @@ export async function generateEventSuggestion(
     .replace('{{guide}}', guide || 'Session Coach')
     .replace('{{goal}}', sessionGoal || 'Make progress on current goals')
     .replace('{{keyContext}}', keyContext || '(No historical context available)')
+    .replace('{{cyclePhaseSection}}', cyclePhaseSection)
     .replace('{{todaysPlanSection}}', todaysPlanSection)
     .replace('{{todaysEventsSection}}', todaysEventsSection)
     .replace('{{yesterdaysReviewSection}}', yesterdaysReviewSection)
@@ -214,4 +220,56 @@ function formatTime(isoDate: string): string {
     minute: '2-digit',
     hour12: true,
   });
+}
+
+/**
+ * Format menstrual cycle phase section for prompts
+ */
+function formatCyclePhaseSection(cyclePhase?: MenstrualCycleInfo): string {
+  if (!cyclePhase || !cyclePhase.tracking || !cyclePhase.currentPhase) {
+    return '';
+  }
+
+  const phaseDescriptions: Record<string, string> = {
+    menstrual: 'Menstrual phase - energy typically lower, strength may be reduced 10-20%',
+    follicular: 'Follicular phase - energy rising, good recovery, optimal for intensity',
+    ovulation: 'Ovulation phase - peak performance window, best for PRs and max efforts',
+    luteal: 'Luteal phase - higher RPE (weights feel heavier), metabolism +100-300cal, cravings normal',
+  };
+
+  const phaseNotes: Record<string, string[]> = {
+    menstrual: [
+      'Strength typically 10-20% lower - this is normal',
+      'Focus on technique over intensity',
+      'Iron-rich foods help with energy',
+    ],
+    follicular: [
+      'Good time for progressive overload',
+      'Body recovers well - can push intensity',
+      'Carbs utilized efficiently',
+    ],
+    ovulation: [
+      'Best window for max attempts and PRs',
+      'Peak strength and coordination',
+      'Slight metabolism increase',
+    ],
+    luteal: [
+      'Same weights will feel 10-15% harder - hormonal, not weakness',
+      'Recovery is slower - maintain, dont push',
+      'Cravings are biological - +100-300cal needs',
+      'Magnesium helps (dark chocolate, nuts)',
+    ],
+  };
+
+  const lines = [
+    `=== MENSTRUAL CYCLE PHASE ===`,
+    `Current: ${cyclePhase.currentPhase.toUpperCase()} (Day ${cyclePhase.dayOfCycle})`,
+    phaseDescriptions[cyclePhase.currentPhase] || '',
+    '',
+    'NOTES:',
+    ...(phaseNotes[cyclePhase.currentPhase] || []).map(note => `- ${note}`),
+    '',
+  ];
+
+  return lines.join('\n');
 }

@@ -8,7 +8,7 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { SessionKnowledge, SessionAnalysis, SuggestedWorkout, SuggestedDiet } from '@/lib/sessions/types';
+import type { SessionKnowledge, SessionAnalysis, SuggestedWorkout, SuggestedDiet, MenstrualCycleInfo } from '@/lib/sessions/types';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -146,7 +146,31 @@ If the pre-determined muscle group (e.g., Chest) has NO exercises in HISTORICAL 
 - Suggest common exercises for that muscle group (Bench Press, Incline DB, etc.)
 - Set weight: "unknown" for ALL exercises
 - Set notes: "No previous data - start with comfortable weight"
-- In reason: Explain "No previous chest workout data found in history"`;
+- In reason: Explain "No previous chest workout data found in history"
+
+=== CYCLE-AWARE ADJUSTMENTS (if MENSTRUAL CYCLE PHASE section exists) ===
+
+If user has menstrual cycle info, adjust suggestions:
+
+MENSTRUAL (days 1-5):
+- Suggest 10-15% lower weights than usual
+- Add note: "Phase-adjusted - focus on technique"
+- In reason: "Menstrual phase (day X) - weights reduced, focus on form"
+
+FOLLICULAR (days 6-14):
+- Can suggest slight increases (+2.5kg) if recent sessions were strong
+- Good time for PRs
+- In reason: "Follicular phase - good window for progressive overload"
+
+OVULATION (days 14-17):
+- Peak performance, can push harder
+- Best time for max attempts
+- In reason: "Ovulation window - peak strength phase"
+
+LUTEAL (days 18-28):
+- Keep weights same as last session (don't increase)
+- Note: "May feel harder - RPE +1-2 expected"
+- In reason: "Luteal phase (day X) - maintaining weights, expect higher RPE"`;
 
 /**
  * Generate a detailed workout suggestion based on user's training history
@@ -271,6 +295,7 @@ const DIET_SUGGESTION_PROMPT = `You are a nutrition planner creating a meal plan
    - Look at USER PROFILE for calorie/protein targets
    - Identify their goal: cutting, bulking, or maintaining
    - Note any dietary preferences or restrictions
+   - CHECK if MENSTRUAL CYCLE PHASE section exists - adjust targets accordingly
 
 2. ANALYZE RECENT INTAKE
    - Check YESTERDAY's intake (if high calories, suggest lighter today)
@@ -289,6 +314,29 @@ const DIET_SUGGESTION_PROMPT = `You are a nutrition planner creating a meal plan
    - meals: Array of meal suggestions with full macros
    - dailyTotals: Target totals for the day
 
+=== CYCLE-AWARE ADJUSTMENTS (if MENSTRUAL CYCLE PHASE section exists) ===
+
+MENSTRUAL PHASE (days 1-5):
+- Prioritize iron-rich foods: red meat, spinach, legumes, fortified cereals
+- Suggest warm, easy-to-digest foods
+- In reason: "Menstrual phase - including iron-rich foods for energy"
+
+FOLLICULAR PHASE (days 6-14):
+- Normal targets apply
+- Good phase for higher carb days if training hard
+- In reason: "Follicular phase - carbs utilized efficiently"
+
+LUTEAL PHASE (days 18-28):
+- ADD 100-300 calories to daily target (metabolism increases)
+- Include magnesium-rich foods: dark chocolate, nuts, leafy greens
+- NEVER suggest restriction - hunger is biological
+- In reason: "Luteal phase (day X) - daily target increased by ~200cal for higher BMR. Cravings are normal."
+
+CRITICAL for luteal phase:
+- If user's target is 1700 cal, suggest 1900-2000 cal during luteal
+- Always mention this is biological, not overeating
+- Include a treat (dark chocolate, etc.) - it helps with magnesium
+
 === CRITICAL RULES ===
 
 1. Use foods they've eaten before (from history)
@@ -296,6 +344,7 @@ const DIET_SUGGESTION_PROMPT = `You are a nutrition planner creating a meal plan
 3. If protein is low so far today, prioritize protein-dense foods
 4. Be specific with portions (e.g., "200g chicken breast" not "some chicken")
 5. If no target data, use defaults: 2000 cal, 150g protein for cutting
+6. During luteal phase, DO NOT suggest restriction - add 100-300 cal to target
 
 === EXAMPLE OUTPUT ===
 
@@ -308,6 +357,19 @@ const DIET_SUGGESTION_PROMPT = `You are a nutrition planner creating a meal plan
     {"time": "Evening", "suggestion": "Protein shake with banana", "calories": 200, "protein": 25, "carbs": 30, "fat": 2, "notes": "If still hungry"}
   ],
   "dailyTotals": {"calories": 1800, "protein": 160, "carbs": 180, "fat": 60}
+}
+
+LUTEAL PHASE EXAMPLE:
+
+{
+  "reason": "Target: 1800 cal normally, but LUTEAL PHASE (day 23) - BMR increases 100-300cal. Adjusted target: 2000 cal. Cravings are biological. Including magnesium-rich foods.",
+  "meals": [
+    {"time": "Lunch", "suggestion": "Steak salad (150g sirloin, mixed greens, avocado)", "calories": 550, "protein": 45, "carbs": 12, "fat": 35, "notes": "Iron + protein"},
+    {"time": "Snack", "suggestion": "Dark chocolate (30g) + handful of almonds", "calories": 250, "protein": 6, "carbs": 18, "fat": 18, "notes": "Magnesium helps with luteal symptoms"},
+    {"time": "Dinner", "suggestion": "Salmon with sweet potato and broccoli", "calories": 650, "protein": 50, "carbs": 45, "fat": 28, "notes": null},
+    {"time": "Evening", "suggestion": "Greek yogurt with berries", "calories": 200, "protein": 18, "carbs": 22, "fat": 4, "notes": "If hungry - this is normal during luteal"}
+  ],
+  "dailyTotals": {"calories": 2000, "protein": 155, "carbs": 180, "fat": 70}
 }`;
 
 /**
@@ -397,6 +459,29 @@ function formatKnowledgeForWorkout(
   analysis?: SessionAnalysis
 ): string {
   const sections: string[] = [];
+
+  // Add cycle phase section if available
+  if (knowledge.cyclePhase?.tracking && knowledge.cyclePhase.currentPhase) {
+    sections.push(`=== MENSTRUAL CYCLE PHASE ===`);
+    sections.push(`Current phase: ${knowledge.cyclePhase.currentPhase.toUpperCase()} (Day ${knowledge.cyclePhase.dayOfCycle})`);
+
+    if (knowledge.cyclePhase.currentPhase === 'menstrual') {
+      sections.push(`ADJUST: Lower weights by 10-15%, focus on volume not intensity`);
+      sections.push(`AVOID: Max attempts, new PRs`);
+      sections.push(`NOTE: Strength typically 10-20% lower - this is normal physiology`);
+    } else if (knowledge.cyclePhase.currentPhase === 'luteal') {
+      sections.push(`ADJUST: Same weights will feel harder (higher RPE), this is normal`);
+      sections.push(`AVOID: Aggressive progressive overload this week`);
+      sections.push(`NOTE: Don't chase PRs - maintain current weights`);
+    } else if (knowledge.cyclePhase.currentPhase === 'follicular') {
+      sections.push(`OPTIMAL: Good phase for intensity, can push progressive overload`);
+      sections.push(`NOTE: Recovery is efficient - can train harder`);
+    } else if (knowledge.cyclePhase.currentPhase === 'ovulation') {
+      sections.push(`OPTIMAL: Peak performance window - best time for PRs`);
+      sections.push(`NOTE: Strength and coordination at highest`);
+    }
+    sections.push('');
+  }
 
   // If analysis exists with todaysPlan, inject it as authoritative context at the TOP
   if (analysis?.todaysPlan) {
@@ -521,6 +606,30 @@ function formatKnowledgeForDiet(
   knowledge: SessionKnowledge
 ): string {
   const sections: string[] = [];
+
+  // Add cycle phase section if available
+  if (knowledge.cyclePhase?.tracking && knowledge.cyclePhase.currentPhase) {
+    sections.push(`=== MENSTRUAL CYCLE PHASE ===`);
+    sections.push(`Current phase: ${knowledge.cyclePhase.currentPhase.toUpperCase()} (Day ${knowledge.cyclePhase.dayOfCycle})`);
+
+    if (knowledge.cyclePhase.currentPhase === 'luteal') {
+      sections.push(`CALORIE ADJUSTMENT: Add 100-300 cal to daily target (BMR increases)`);
+      sections.push(`CRAVINGS: Normal and biological - DO NOT suggest restriction`);
+      sections.push(`MAGNESIUM FOODS: Include dark chocolate, nuts, leafy greens`);
+      sections.push(`NOTE: Eating 100-300 cal more during luteal is not overeating - it's biology`);
+    } else if (knowledge.cyclePhase.currentPhase === 'menstrual') {
+      sections.push(`IRON NEEDS: Prioritize iron-rich foods (red meat, spinach, legumes)`);
+      sections.push(`DIGESTION: Suggest easier-to-digest, warm foods`);
+      sections.push(`NOTE: Energy may be lower - nutrient-dense comfort foods are appropriate`);
+    } else if (knowledge.cyclePhase.currentPhase === 'follicular') {
+      sections.push(`CARBS: Utilized efficiently - good time for higher carb days`);
+      sections.push(`NOTE: Normal targets apply, good recovery phase`);
+    } else if (knowledge.cyclePhase.currentPhase === 'ovulation') {
+      sections.push(`METABOLISM: Slightly higher - normal targets apply`);
+      sections.push(`NOTE: Peak energy phase`);
+    }
+    sections.push('');
+  }
 
   sections.push(`=== SESSION ===`);
   sections.push(`TITLE: ${title}`);

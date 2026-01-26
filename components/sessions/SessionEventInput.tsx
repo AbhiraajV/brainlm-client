@@ -88,6 +88,10 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
     const yesterdaysReview = freshSession.knowledge?.yesterdaysReview
       ? { summary: freshSession.knowledge.yesterdaysReview.summary, periodKey: freshSession.knowledge.yesterdaysReview.periodKey }
       : undefined;
+    const todaysPlan = freshSession.knowledge?.todaysPlan
+      ? { renderedMarkdown: freshSession.knowledge.todaysPlan.renderedMarkdown }
+      : undefined;
+    const cyclePhase = freshSession.knowledge?.cyclePhase;
 
     try {
       const result = await generateEventSuggestion(
@@ -102,7 +106,9 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
         trackerType,
         freshSession.masterSummary,
         todaysEvents,
-        yesterdaysReview
+        yesterdaysReview,
+        todaysPlan,
+        cyclePhase
       );
 
       if ('comment' in result) {

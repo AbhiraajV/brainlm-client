@@ -18,7 +18,7 @@ export function EventSuggestion({
   error,
   onRetry,
 }: EventSuggestionProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Don't render anything if no status or pending
   if (!status || status === 'pending') {

@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function SuggestedDiet({ suggestedDiet, onGenerate, isGenerating }: Props) {
-  const [isExpanded, setIsExpanded] = useState(!!suggestedDiet);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isReasonExpanded, setIsReasonExpanded] = useState(false);
 
   // Show generate button if no diet and onGenerate is provided
@@ -136,8 +136,8 @@ export function SuggestedDiet({ suggestedDiet, onGenerate, isGenerating }: Props
             </div>
           )}
 
-          {/* Regenerate button */}
-          {onGenerate && (
+          {/* Regenerate button - commented out for now */}
+          {/* {onGenerate && (
             <button
               onClick={onGenerate}
               disabled={isGenerating}
@@ -150,7 +150,7 @@ export function SuggestedDiet({ suggestedDiet, onGenerate, isGenerating }: Props
               )}
               Regenerate
             </button>
-          )}
+          )} */}
         </div>
       )}
     </div>
