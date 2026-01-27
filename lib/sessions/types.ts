@@ -130,6 +130,8 @@ export interface SessionAnalysis {
     highlight?: string;        // Key metric or achievement (e.g., "Bench PR 82.5kg", "1800 cal")
     preTriggers?: string[];    // What happened before (sleep, stress, etc.)
     postEffects?: string[];    // What happened after (soreness, energy, etc.)
+    emotionalContext?: string; // User's emotional state
+    whatWorked?: string;       // What strategy worked if applicable
   }[];
 
   // Detected patterns with trend analysis
@@ -165,6 +167,39 @@ export interface SessionAnalysis {
   // User's goals/targets extracted from UOM
   userGoals?: string;
   userTargets?: { key: string; value: string }[];
+
+  // THE MAIN ADDITION - detailed narrative briefing for the coach
+  coachBriefing?: {
+    userProfile: string;           // 3-5 paragraphs about who this person is
+    whatGoesWrong: string;         // Exhaustive list of failure patterns with examples
+    whyItGoesWrong: string;        // Root cause analysis for each failure
+    howWeFixedItBefore: string;    // Every success strategy with specific examples
+    todaysRisks: string;           // What to watch for TODAY
+    recommendedApproach: string;   // How coach should handle this user
+  };
+
+  // Emotional factors affecting behavior
+  emotionalFactors?: {
+    trigger: string;               // What happened
+    emotionalResponse: string;     // How user felt
+    behavioralImpact: string;      // How it affected behavior
+    frequency: number;             // How many times observed
+  }[];
+
+  // Strategies that have worked before
+  whatWorkedBefore?: {
+    situation: string;             // When this problem/pattern occurred
+    strategy: string;              // What the user did
+    outcome: string;               // Result
+    timesWorked: number;           // How often it worked
+  }[];
+
+  // Root cause analysis for recurring patterns
+  rootCauses?: {
+    behavior: string;              // Observable pattern
+    underlyingWhy: string;         // WHY this happens
+    evidence: string[];            // Supporting evidence
+  }[];
 
   generatedAt: string;
 }

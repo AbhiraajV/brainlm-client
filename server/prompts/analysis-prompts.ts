@@ -33,8 +33,10 @@ export const SESSION_ANALYSIS_SCHEMA = {
             type: ['array', 'null'],
             items: { type: 'string' },
           },
+          emotionalContext: { type: ['string', 'null'] },
+          whatWorked: { type: ['string', 'null'] },
         },
-        required: ['date', 'event', 'highlight', 'preTriggers', 'postEffects'],
+        required: ['date', 'event', 'highlight', 'preTriggers', 'postEffects', 'emotionalContext', 'whatWorked'],
         additionalProperties: false,
       },
     },
@@ -125,6 +127,67 @@ export const SESSION_ANALYSIS_SCHEMA = {
         additionalProperties: false,
       },
     },
+    // THE KEY ADDITION - detailed narrative briefing for the coach
+    coachBriefing: {
+      type: 'object',
+      properties: {
+        userProfile: { type: 'string' },
+        whatGoesWrong: { type: 'string' },
+        whyItGoesWrong: { type: 'string' },
+        howWeFixedItBefore: { type: 'string' },
+        todaysRisks: { type: 'string' },
+        recommendedApproach: { type: 'string' },
+      },
+      required: ['userProfile', 'whatGoesWrong', 'whyItGoesWrong', 'howWeFixedItBefore', 'todaysRisks', 'recommendedApproach'],
+      additionalProperties: false,
+    },
+    // Emotional factors affecting behavior
+    emotionalFactors: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          trigger: { type: 'string' },
+          emotionalResponse: { type: 'string' },
+          behavioralImpact: { type: 'string' },
+          frequency: { type: 'number' },
+        },
+        required: ['trigger', 'emotionalResponse', 'behavioralImpact', 'frequency'],
+        additionalProperties: false,
+      },
+    },
+    // Strategies that have worked before
+    whatWorkedBefore: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          situation: { type: 'string' },
+          strategy: { type: 'string' },
+          outcome: { type: 'string' },
+          timesWorked: { type: 'number' },
+        },
+        required: ['situation', 'strategy', 'outcome', 'timesWorked'],
+        additionalProperties: false,
+      },
+    },
+    // Root cause analysis
+    rootCauses: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          behavior: { type: 'string' },
+          underlyingWhy: { type: 'string' },
+          evidence: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['behavior', 'underlyingWhy', 'evidence'],
+        additionalProperties: false,
+      },
+    },
   },
   required: [
     'sessionType',
@@ -135,6 +198,10 @@ export const SESSION_ANALYSIS_SCHEMA = {
     'context',
     'userGoals',
     'userTargets',
+    'coachBriefing',
+    'emotionalFactors',
+    'whatWorkedBefore',
+    'rootCauses',
   ],
   additionalProperties: false,
 };
@@ -172,6 +239,8 @@ export const UNIVERSAL_ANALYSIS_PROMPT = `You are a UNIVERSAL CONTEXT ANALYZER. 
    - highlight: ALL key metrics, not just one (e.g., "Bench 80kg x 8, Incline 30kg x 10, Flyes 15kg x 12")
    - preTriggers: what happened before (sleep, stress, etc.)
    - postEffects: what happened after
+   - emotionalContext: what emotional state the user was in (if mentioned)
+   - whatWorked: what strategy worked in this situation (if applicable)
 
    IMPORTANT: For gym workouts, the "event" field should contain EVERY exercise from that day, not a summary
 
@@ -200,11 +269,194 @@ export const UNIVERSAL_ANALYSIS_PROMPT = `You are a UNIVERSAL CONTEXT ANALYZER. 
    Based on patterns and data, suggest what to do today.
    Every suggestion needs rationale citing their actual data.
 
-6. WRITE CONDENSED CONTEXT
-   Brief markdown summary with:
-   - Recent activity timeline with specific numbers
-   - What's next in their routine
-   - Key data points for the coach
+=== 6. WRITE DETAILED COACH BRIEFING ===
+
+This is the MOST IMPORTANT output. You are briefing a coach who knows NOTHING about this user.
+The coach will read this briefing and then help the user in real-time.
+
+Your briefing must be EXHAUSTIVE. If the input data is 10,000 words, your briefing should capture
+ALL the relevant patterns, not summarize them into 500 words.
+
+WRITE EACH SECTION IN FULL DETAIL:
+
+### USER PROFILE
+Who is this person? Write 3-5 paragraphs covering:
+- Their stated goals (quote exactly from data)
+- Their current situation (weight, fitness level, addiction status, etc.)
+- Their lifestyle factors (work schedule, stress sources, sleep patterns, relationships)
+- Their personality patterns (do they respond to tough love? need encouragement? data-driven?)
+- Any special circumstances (menstrual cycle, injuries, mental health, medications)
+
+### WHAT GOES WRONG (Be Exhaustive)
+List EVERY failure pattern you find in the data. For each one:
+- Describe the pattern in detail
+- Give 3-5 specific examples with dates
+- Note frequency (how often does this happen?)
+- Rate severity (minor slip vs major problem)
+
+Example of GOOD detail:
+"EVENING OVEREATING PATTERN:
+- Jan 15: Ate 1200cal dinner after 900cal day (binged on pasta + bread + ice cream)
+- Jan 18: Same pattern - 1100cal by 6pm → 800cal dinner → 200cal snack at 10pm
+- Jan 21: Skipped lunch due to meeting, ate 1500cal from 7-10pm
+- Jan 24: Reported 'lost control' at dinner, estimated 1000cal over target
+- Jan 26: Ate kids' leftovers + second dinner
+Frequency: 5/12 days this month (42%)
+Severity: HIGH - this is their #1 obstacle"
+
+Do this for EVERY pattern. Don't summarize. Don't say "user sometimes overeats."
+Give the coach the FULL picture.
+
+### WHY IT GOES WRONG (Root Cause Analysis)
+For EACH failure pattern above, explain WHY it happens:
+- What triggers it? (hunger, stress, boredom, social, habit, emotional)
+- What's the underlying mechanism? (calorie deficit, blood sugar, willpower depletion, emotional regulation)
+- What makes THIS user vulnerable? (their specific circumstances)
+
+Example:
+"WHY EVENING OVEREATING HAPPENS:
+1. PHYSIOLOGICAL: User consistently under-eats during day (avg 1100cal by 5pm vs 1800 target).
+   By evening, ghrelin is spiking and leptin is suppressed. Body is literally demanding food.
+2. WILLPOWER DEPLETION: User has stressful job (mentioned work stress 8 times). By evening,
+   prefrontal cortex is fatigued. Decision-making capacity is lowest.
+3. ENVIRONMENTAL: Kids' leftovers present a constant trigger (mentioned 3x). Food is visible and easy.
+4. EMOTIONAL: Evening is when loneliness hits (user mentioned feeling isolated after kids sleep, 2x).
+   Food becomes comfort/companion.
+5. HABIT LOOP: Years of conditioning - TV time = snack time. Trying to watch TV without eating
+   creates psychological discomfort."
+
+### HOW WE FIXED IT BEFORE (Success Stories)
+List EVERY time the user successfully overcame a challenge. Be specific:
+- What was the situation?
+- What exactly did they do?
+- What was the result?
+- Could this work again?
+
+Example:
+"SUCCESSFUL INTERVENTIONS:
+1. Jan 17: Had craving at 3pm, ate Greek yogurt (25g protein) → reported craving gone in 20 min.
+   SUCCESS RATE: 4/5 times protein stopped afternoon cravings.
+
+2. Jan 19: Felt like skipping gym, texted friend instead → friend convinced them to go →
+   reported feeling great after. SUCCESS RATE: 3/3 times accountability worked.
+
+3. Jan 22: Evening craving hit, went for 10-min walk instead of eating → craving passed.
+   SUCCESS RATE: 2/3 times (1x walked but still ate after).
+
+4. Jan 23: Pre-portioned dinner before sitting down → ate only what was plated, didn't go back.
+   SUCCESS RATE: 2/2 times pre-portioning worked.
+
+5. Week of Jan 10: Ate bigger breakfast (500cal vs usual 200cal) → reported less evening hunger.
+   SUCCESS RATE: 5/7 days that week stayed on track."
+
+### TODAY'S RISKS
+Based on patterns, what should the coach watch for TODAY:
+- Day of week patterns (e.g., "Fridays are high-risk - user mentioned 'weekend mentality' 3x")
+- Time of day risks (e.g., "3pm is danger zone - 6/10 cravings happened 2-4pm")
+- Current context (e.g., "User mentioned big meeting today - expect stress eating risk tonight")
+- Cycle phase if applicable (e.g., "Day 24 luteal - expect +200cal hunger, don't fight it")
+
+### RECOMMENDED APPROACH FOR COACH
+How should the coach interact with this user?
+- What tone works? (tough love vs gentle vs data-focused)
+- What motivates them? (cite examples from data)
+- What doesn't work? (cite failed approaches)
+- Key phrases that resonate with them (quote their own words back)
+
+Example:
+"THIS USER RESPONDS TO:
+- Data and logic (they track meticulously, mentioned 'I like seeing the numbers' on Jan 12)
+- Direct, no-BS feedback (they complained about 'fluffy advice' on Jan 8)
+- Being reminded of their WHY (they mentioned wanting energy for kids 4 times)
+
+DON'T:
+- Be preachy (they pushed back against 'should' language on Jan 15)
+- Focus on weight (they mentioned scale anxiety, prefer non-scale victories)
+- Suggest meditation (they tried it, said 'not for me' on Jan 20)
+
+KEY PHRASES THEY USE:
+- 'Lost control' (signals guilt - respond with data, not reassurance)
+- 'Feel like crap' (usually means tired + overate previous night)
+- 'Back on track' (they want validation that one day doesn't ruin everything)"
+
+=== 7. EMOTIONAL FACTOR ANALYSIS ===
+
+Search ALL data for emotional patterns. For EACH situation, identify:
+- What emotional state PRECEDED the behavior? (stress, anxiety, loneliness, boredom, celebration)
+- What emotional state FOLLOWED? (guilt, relief, satisfaction, regret)
+- Did emotional factors CAUSE or CONTRIBUTE to the behavior?
+
+Extract patterns like:
+- "Stress at work → overeating at dinner" (observed 5x)
+- "Loneliness on weekends → relapse" (observed 3x)
+- "Anxiety → skipped workout" (observed 2x)
+
+BE EXHAUSTIVE. Don't summarize. List every emotional pattern you find.
+
+=== 8. WHAT WORKED BEFORE ===
+
+This is CRITICAL. Search the ENTIRE knowledge base for:
+- Times user successfully overcame a challenge
+- Strategies that led to positive outcomes
+- Actions that broke negative patterns
+- Specific things that helped in the moment
+
+For EACH success, document:
+- What was the situation/problem?
+- What EXACTLY did they do?
+- What was the result?
+- How many times has this worked?
+
+Examples:
+- "Craving at 3pm → had Greek yogurt → craving passed in 20 min" (worked 4/5 times)
+- "Felt like skipping gym → texted accountability partner → went anyway" (worked 3/3 times)
+- "Stress eating urge → went for 10 min walk → didn't binge" (worked 2/3 times)
+
+NEVER skip this section. This is what makes coaching personalized.
+
+=== 9. ROOT CAUSE ANALYSIS (WHY) ===
+
+For EVERY recurring pattern, analyze the UNDERLYING WHY:
+
+WRONG approach: Just noting "user overeats at dinner"
+RIGHT approach: "User overeats at dinner BECAUSE:
+  - Skips breakfast (creates 1000+ cal deficit by 6pm)
+  - Willpower depletes through day (ego depletion)
+  - Evening = low cortisol, high ghrelin
+  - Evidence: 8/10 overeating episodes followed <1200 cal by 4pm"
+
+WRONG: "User relapses after arguments"
+RIGHT: "User relapses after arguments BECAUSE:
+  - Uses substance for emotional regulation
+  - No alternative coping mechanism for anger
+  - Pattern: argument → isolation → craving → use
+  - Evidence: 3/4 relapses within 2 hrs of interpersonal conflict"
+
+Include cross-domain causes:
+- Poor sleep → affects workouts AND diet compliance
+- Work stress → affects all domains
+- Menstrual cycle → affects energy, cravings, strength
+
+=== CRITICAL: BE EXHAUSTIVE ===
+
+This analysis is the SINGLE SOURCE OF TRUTH for the coach.
+If a pattern exists in the data, it MUST appear in your analysis.
+If a success strategy exists, it MUST be documented.
+If an emotional factor is present, it MUST be captured.
+
+The coach can only use what you give it. Missing data = worse coaching.
+
+=== 10. OUTPUT LENGTH REQUIREMENT ===
+
+Your output should be PROPORTIONAL to the input.
+- If input has 50+ events, your coachBriefing should be 2000-4000 words
+- If input has 20-50 events, your coachBriefing should be 1000-2000 words
+- If input has <20 events, your coachBriefing should be 500-1000 words
+
+DO NOT SUMMARIZE. DO NOT CONDENSE. The coach needs ALL the details.
+
+When in doubt, include more detail. A coach who knows too much about the user
+is better than a coach who doesn't know enough.
 
 === CRITICAL RULES ===
 
@@ -246,7 +498,9 @@ export const UNIVERSAL_ANALYSIS_PROMPT = `You are a UNIVERSAL CONTEXT ANALYZER. 
 === OUTPUT ===
 
 Return JSON matching the schema exactly. Every field is required.
-If you don't have data for a field, use empty array [] or null as appropriate.`;
+If you don't have data for a field, use empty array [] or appropriate defaults.
+For coachBriefing fields with no data, write "(No data available yet - this is a new user)"
+For emotionalFactors, whatWorkedBefore, rootCauses with no data, use empty arrays [].`;
 
 /**
  * Format knowledge into structured input for the universal analyzer
@@ -318,24 +572,24 @@ export function formatKnowledgeForAnalysis(
     sections.push('');
   }
 
-  // Historical events (vector search results)
+  // Historical events (vector search results) - increased limit for detailed analysis
   if (knowledge.events.length > 0) {
     sections.push(`=== HISTORICAL EVENTS (${knowledge.events.length} relevant) ===`);
-    const eventsToShow = knowledge.events.slice(0, 20);
+    const eventsToShow = knowledge.events.slice(0, 50);
     for (const event of eventsToShow) {
       sections.push(`\n[${event.occurredAt}]`);
       sections.push(event.content);
     }
-    if (knowledge.events.length > 20) {
-      sections.push(`\n(${knowledge.events.length - 20} more events not shown)`);
+    if (knowledge.events.length > 50) {
+      sections.push(`\n(${knowledge.events.length - 50} more events not shown)`);
     }
     sections.push('');
   }
 
-  // Interpretations
+  // Interpretations - increased limit for detailed analysis
   if (knowledge.interpretations.length > 0) {
     sections.push(`=== INTERPRETATIONS (${knowledge.interpretations.length}) ===`);
-    const interpsToShow = knowledge.interpretations.slice(0, 15);
+    const interpsToShow = knowledge.interpretations.slice(0, 30);
     for (const interp of interpsToShow) {
       sections.push(`\n[${interp.createdAt}]`);
       sections.push(interp.content);

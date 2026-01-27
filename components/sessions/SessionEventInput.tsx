@@ -108,7 +108,8 @@ export function SessionEventInput({ sessionId }: SessionEventInputProps) {
         todaysEvents,
         yesterdaysReview,
         todaysPlan,
-        cyclePhase
+        cyclePhase,
+        freshSession.analysis  // Pass the detailed analysis for enhanced coaching
       );
 
       if ('comment' in result) {

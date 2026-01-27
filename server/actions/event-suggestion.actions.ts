@@ -11,14 +11,87 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { TrackerType, MenstrualCycleInfo } from '@/lib/sessions/types';
+import type { TrackerType, MenstrualCycleInfo, SessionAnalysis } from '@/lib/sessions/types';
 import {
   getEventCoachPrompt,
   hasMasterSummary,
-  extractSection,
 } from '@/server/prompts/tracker-prompts';
 
+/**
+ * Format the enhanced context from session analysis for coach prompts
+ * This extracts the detailed briefing and structured data for personalized coaching
+ */
+function formatEnhancedContext(analysis?: SessionAnalysis): {
+  coachBriefing: string;
+  patternSummary: string;
+  whatWorkedBefore: string;
+  emotionalFactors: string;
+  rootCauses: string;
+} {
+  if (!analysis) {
+    return {
+      coachBriefing: '(No detailed briefing available yet - this is a new user)',
+      patternSummary: '(No patterns identified yet)',
+      whatWorkedBefore: '(No prior success strategies recorded)',
+      emotionalFactors: '(No emotional patterns observed)',
+      rootCauses: '(No root cause analysis available)',
+    };
+  }
+
+  // THE DETAILED BRIEFING - this is the main context for the coach
+  const briefing = analysis.coachBriefing;
+  const coachBriefing = briefing ? `
+## USER PROFILE
+${briefing.userProfile}
+
+## WHAT GOES WRONG WITH THIS USER
+${briefing.whatGoesWrong}
+
+## WHY IT GOES WRONG (Root Causes)
+${briefing.whyItGoesWrong}
+
+## HOW WE FIXED IT BEFORE (Success Strategies)
+${briefing.howWeFixedItBefore}
+
+## TODAY'S RISKS TO WATCH
+${briefing.todaysRisks}
+
+## HOW TO APPROACH THIS USER
+${briefing.recommendedApproach}
+` : '(No detailed briefing available)';
+
+  // Also keep structured data for quick reference
+  const patternSummary = analysis.patterns
+    ?.map(p => `- ${p.name} (${p.trend}): ${p.description}`)
+    .join('\n') || '(No patterns)';
+
+  const whatWorkedBefore = analysis.whatWorkedBefore
+    ?.map(w => `- When "${w.situation}": ${w.strategy} → ${w.outcome} (worked ${w.timesWorked}x)`)
+    .join('\n') || '(No prior successes recorded)';
+
+  const emotionalFactors = analysis.emotionalFactors
+    ?.map(e => `- ${e.trigger} → ${e.emotionalResponse} → ${e.behavioralImpact} (${e.frequency}x)`)
+    .join('\n') || '(No emotional patterns)';
+
+  const rootCauses = analysis.rootCauses
+    ?.map(r => `- ${r.behavior} BECAUSE: ${r.underlyingWhy}`)
+    .join('\n') || '(No root causes analyzed)';
+
+  return { coachBriefing, patternSummary, whatWorkedBefore, emotionalFactors, rootCauses };
+}
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// JSON schema for diet/gym event responses
+const EVENT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    masterSummary: { type: 'string' },
+    comment: { type: 'string' },
+  },
+  required: ['masterSummary', 'comment'],
+  additionalProperties: false,
+};
 
 interface PreviousEvent {
   content: string;
@@ -62,6 +135,7 @@ export interface EventSuggestionResult {
  * @param yesterdaysReview - Yesterday's review summary (optional)
  * @param todaysPlan - Today's daily plan with focus areas and targets (optional)
  * @param cyclePhase - Menstrual cycle phase info for female users (optional)
+ * @param analysis - Session analysis with detailed briefing, patterns, and root causes (optional)
  * @returns The suggestion with comment and optional masterSummary, or an error
  */
 export async function generateEventSuggestion(
@@ -78,7 +152,8 @@ export async function generateEventSuggestion(
   todaysEvents?: TodayEvent[],
   yesterdaysReview?: YesterdaysReview,
   todaysPlan?: TodaysPlan,
-  cyclePhase?: MenstrualCycleInfo
+  cyclePhase?: MenstrualCycleInfo,
+  analysis?: SessionAnalysis
 ): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
@@ -118,6 +193,10 @@ export async function generateEventSuggestion(
   // Format menstrual cycle phase section (if tracking)
   const cyclePhaseSection = formatCyclePhaseSection(cyclePhase);
 
+  // Format enhanced context from analysis (coach briefing, patterns, what worked, etc.)
+  const { coachBriefing, patternSummary, whatWorkedBefore, emotionalFactors, rootCauses } =
+    formatEnhancedContext(analysis);
+
   // Get the appropriate prompt for this tracker type
   const basePrompt = getEventCoachPrompt(trackerType);
 
@@ -132,24 +211,45 @@ export async function generateEventSuggestion(
     .replace('{{yesterdaysReviewSection}}', yesterdaysReviewSection)
     .replace('{{previousEvents}}', formattedPreviousEvents)
     .replace('{{newEvent}}', eventContent)
-    .replace('{{currentMasterSummary}}', currentMasterSummary || '(No previous entries)');
+    .replace('{{currentMasterSummary}}', currentMasterSummary || '(No previous entries)')
+    // Enhanced context from analysis
+    .replace('{{coachBriefing}}', coachBriefing)
+    .replace('{{patternSummary}}', patternSummary)
+    .replace('{{whatWorkedBefore}}', whatWorkedBefore)
+    .replace('{{emotionalFactors}}', emotionalFactors)
+    .replace('{{rootCauses}}', rootCauses);
 
   try {
+    // Build request body
+    const requestBody: Record<string, unknown> = {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Event: ${eventContent}` },
+      ],
+      temperature: 0.7,
+      max_tokens: hasMasterSummary(trackerType) ? 1500 : 300,
+    };
+
+    // Use JSON schema for diet/gym trackers
+    if (hasMasterSummary(trackerType)) {
+      requestBody.response_format = {
+        type: 'json_schema',
+        json_schema: {
+          name: 'event_response',
+          strict: true,
+          schema: EVENT_RESPONSE_SCHEMA,
+        },
+      };
+    }
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: `Event: ${eventContent}` },
-        ],
-        temperature: 0.7,
-        max_tokens: hasMasterSummary(trackerType) ? 1500 : 300,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -167,23 +267,21 @@ export async function generateEventSuggestion(
 
     // Parse response based on tracker type
     if (hasMasterSummary(trackerType)) {
-      // Diet/Gym: Extract both MASTER_SUMMARY and COMMENT sections
-      const masterSummary = extractSection(rawResponse, 'MASTER_SUMMARY');
-      const comment = extractSection(rawResponse, 'COMMENT');
-
-      if (!comment) {
-        // Fallback: treat whole response as comment if parsing fails
+      // Diet/Gym: Parse JSON response
+      try {
+        const parsed = JSON.parse(rawResponse);
+        return {
+          comment: parsed.comment,
+          masterSummary: parsed.masterSummary || undefined,
+        };
+      } catch {
+        // Fallback: treat whole response as comment if JSON parsing fails
+        console.error('[generateEventSuggestion] Failed to parse JSON response');
         return { comment: rawResponse };
       }
-
-      return {
-        comment,
-        masterSummary: masterSummary || undefined,
-      };
     } else {
-      // Addiction/General: Extract COMMENT only (or use whole response)
-      const comment = extractSection(rawResponse, 'COMMENT') || rawResponse;
-      return { comment };
+      // Addiction/General: Use raw response as comment
+      return { comment: rawResponse };
     }
   } catch (error) {
     console.error('[generateEventSuggestion] Error:', error);

@@ -165,7 +165,8 @@ export default function SessionDetailPage() {
         todaysEvents,
         yesterdaysReview,
         todaysPlan,
-        cyclePhase
+        cyclePhase,
+        session.analysis  // Pass the detailed analysis for enhanced coaching
       );
 
       if ('comment' in result) {
