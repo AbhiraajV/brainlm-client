@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionsStore, selectSessionById } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -8,6 +8,8 @@ import { SessionEventInput } from '@/components/sessions/SessionEventInput';
 import { SessionInfoCard } from '@/components/sessions/SessionInfoCard';
 import { EventSuggestion } from '@/components/sessions/EventSuggestion';
 import { MasterSummaryCard } from '@/components/sessions/MasterSummaryCard';
+import { WorkoutLogCard } from '@/components/sessions/WorkoutLogCard';
+import { DietLogCard } from '@/components/sessions/DietLogCard';
 import { SuggestedWorkout } from '@/components/sessions/SuggestedWorkout';
 import { SuggestedDiet } from '@/components/sessions/SuggestedDiet';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
@@ -15,8 +17,11 @@ import { generateWorkoutSuggestion, generateDietSuggestion } from '@/server/acti
 import { completeSession } from '@/server/actions/session-complete.actions';
 import { BackButton } from '@/components/ui/BackButton';
 import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
-import type { EventDraft, Session, TrackerType } from '@/lib/sessions/types';
+import type { EventDraft, Session, TrackerType, WorkoutLog, DietLog } from '@/lib/sessions/types';
 import { Trash2 } from 'lucide-react';
+
+// Track in-flight suggestion requests to prevent duplicates
+const inFlightRequests = new Set<string>();
 
 function formatTimeAgo(isoDate: string): string {
   const date = new Date(isoDate);
@@ -101,6 +106,7 @@ export default function SessionDetailPage() {
   const markSessionCompleted = useSessionsStore((s) => s.markSessionCompleted);
   const setSuggestedWorkout = useSessionsStore((s) => s.setSuggestedWorkout);
   const setSuggestedDiet = useSessionsStore((s) => s.setSuggestedDiet);
+  const setTrackerType = useSessionsStore((s) => s.setTrackerType);
   const deleteEventDraft = useSessionsStore((s) => s.deleteEventDraft);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isGeneratingWorkout, setIsGeneratingWorkout] = useState(false);
@@ -111,8 +117,19 @@ export default function SessionDetailPage() {
 
   // Generate LLM suggestion for an event
   const generateSuggestion = useCallback(async (eventId: string, session: Session) => {
+    // Prevent duplicate requests for the same event
+    const requestKey = `${session.id}:${eventId}`;
+    if (inFlightRequests.has(requestKey)) {
+      console.log('[generateSuggestion] Skipping duplicate request for:', requestKey);
+      return;
+    }
+
     const event = session.events.find(e => e.id === eventId);
     if (!event) return;
+
+    // Mark this request as in-flight
+    inFlightRequests.add(requestKey);
+    console.log('[generateSuggestion] Starting request:', requestKey);
 
     // Mark as generating
     setEventLlmComment(session.id, eventId, null, 'generating');
@@ -125,7 +142,32 @@ export default function SessionDetailPage() {
       ? guideMap[session.analysis.sessionType]
       : (session.understanding?.guide || 'Coach');
     const goal = session.sessionContext || session.analysis?.userGoals || session.understanding?.inferredGoal || '';
-    const trackerType: TrackerType = session.analysis?.sessionType || session.trackerType || 'general';
+
+    // Infer tracker type from analysis, session type, or event content
+    let trackerType: TrackerType = session.analysis?.sessionType || session.trackerType || 'general';
+
+    // If still general, try to infer from event content
+    if (trackerType === 'general') {
+      const eventText = event.content.toLowerCase();
+      // Diet patterns
+      if (/food|calories|eating|macros|protein|meal|nutrition|diet|breakfast|lunch|dinner|snack|carbs|fat|ate|drink|coffee|shake|egg|chicken|rice|salad|fruit|vegetable|cal\b|kcal/.test(eventText)) {
+        trackerType = 'diet';
+        // Persist the inferred tracker type for subsequent events
+        setTrackerType(session.id, 'diet');
+      }
+      // Gym patterns
+      else if (/workout|gym|exercise|lift|training|chest|back|legs|arms|shoulders|push|pull|bench|squat|deadlift|weight|reps|sets|curl|press|row/.test(eventText)) {
+        trackerType = 'gym';
+        // Persist the inferred tracker type for subsequent events
+        setTrackerType(session.id, 'gym');
+      }
+    }
+
+    // Debug logging
+    console.log('[generateSuggestion] trackerType:', trackerType);
+    console.log('[generateSuggestion] session.analysis?.sessionType:', session.analysis?.sessionType);
+    console.log('[generateSuggestion] session.trackerType:', session.trackerType);
+    console.log('[generateSuggestion] event.content:', event.content);
 
     // Get previous events (all events before this one chronologically)
     const eventIndex = session.events.findIndex(e => e.id === eventId);
@@ -150,7 +192,9 @@ export default function SessionDetailPage() {
     // Get menstrual cycle phase from knowledge (if tracking)
     const cyclePhase = session.knowledge?.cyclePhase;
 
+    console.log('[generateSuggestion] === CALLING SERVER ACTION ===');
     try {
+      console.log('[generateSuggestion] About to await generateEventSuggestion...');
       const result = await generateEventSuggestion(
         session.id,
         eventId,
@@ -166,19 +210,76 @@ export default function SessionDetailPage() {
         yesterdaysReview,
         todaysPlan,
         cyclePhase,
-        session.analysis  // Pass the detailed analysis for enhanced coaching
+        session.analysis,  // Pass the detailed analysis for enhanced coaching
+        session.workoutLog,  // Pass current workout log for gym tracker
+        session.dietLog      // Pass current diet log for diet tracker
       );
 
+      // Debug: log raw result from server action
+      console.log('[generateSuggestion] *** SERVER ACTION COMPLETED ***');
+      console.log('[generateSuggestion] Raw result from server:', JSON.stringify(result).substring(0, 1000));
+      console.log('[generateSuggestion] Result keys:', Object.keys(result));
+
       if ('comment' in result) {
-        // Pass masterSummary to update if provided (for diet/gym trackers)
-        setEventLlmComment(session.id, eventId, result.comment, 'completed', undefined, result.masterSummary);
+        console.log('[generateSuggestion] Has workoutLogJson?', !!result.workoutLogJson);
+        console.log('[generateSuggestion] Has dietLogJson?', !!result.dietLogJson);
+
+        // Parse JSON strings back into objects (workaround for Next.js serialization)
+        let workoutLog: WorkoutLog | undefined = result.workoutLog;
+        let dietLog: DietLog | undefined = result.dietLog;
+
+        if (result.workoutLogJson) {
+          try {
+            workoutLog = JSON.parse(result.workoutLogJson);
+            console.log('[generateSuggestion] Parsed workoutLogJson successfully');
+          } catch (e) {
+            console.error('[generateSuggestion] Failed to parse workoutLogJson:', e);
+          }
+        }
+
+        if (result.dietLogJson) {
+          try {
+            dietLog = JSON.parse(result.dietLogJson);
+            console.log('[generateSuggestion] Parsed dietLogJson successfully');
+          } catch (e) {
+            console.error('[generateSuggestion] Failed to parse dietLogJson:', e);
+          }
+        }
+
+        // Debug logging
+        console.log('[generateSuggestion] Result received:', {
+          hasComment: !!result.comment,
+          hasMasterSummary: !!result.masterSummary,
+          hasWorkoutLogJson: !!result.workoutLogJson,
+          hasDietLogJson: !!result.dietLogJson,
+          parsedWorkoutLog: !!workoutLog,
+          parsedDietLog: !!dietLog,
+        });
+
+        // Pass structured logs to update (for diet/gym trackers)
+        setEventLlmComment(
+          session.id,
+          eventId,
+          result.comment,
+          'completed',
+          undefined,
+          result.masterSummary,  // Legacy
+          workoutLog,            // Structured workout data
+          dietLog                // Structured diet data
+        );
       } else {
+        console.log('[generateSuggestion] Error result:', result.error);
         setEventLlmComment(session.id, eventId, null, 'failed', result.error);
       }
     } catch (err) {
+      console.error('[generateSuggestion] Exception caught:', err);
       setEventLlmComment(session.id, eventId, null, 'failed', 'Network error');
+    } finally {
+      // Always remove from in-flight when done
+      inFlightRequests.delete(requestKey);
+      console.log('[generateSuggestion] Request completed, removed from in-flight:', requestKey);
     }
-  }, [setEventLlmComment, todaysEventsFromCache]);
+  }, [setEventLlmComment, setTrackerType, todaysEventsFromCache]);
 
   // Handle retry for failed suggestions
   const handleRetry = useCallback((eventId: string) => {
@@ -310,6 +411,7 @@ export default function SessionDetailPage() {
   }, [hydrated, session, router]);
 
   // Process pending/generating events on page load (handle return to page)
+  // Serialized: process one at a time to avoid flooding the server with N parallel requests.
   useEffect(() => {
     if (!hydrated || !session) return;
 
@@ -318,14 +420,22 @@ export default function SessionDetailPage() {
       e => e.llmCommentStatus === 'pending' || e.llmCommentStatus === 'generating'
     );
 
+    if (pendingEvents.length === 0) return;
+
     // Process chronologically (oldest first)
     const sortedPending = [...pendingEvents].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
 
-    sortedPending.forEach(event => {
-      generateSuggestion(event.id, session);
-    });
+    let cancelled = false;
+    (async () => {
+      for (const event of sortedPending) {
+        if (cancelled) break;
+        await generateSuggestion(event.id, session);
+      }
+    })();
+
+    return () => { cancelled = true; };
     // Only run once per session load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, session?.id]);
@@ -387,11 +497,23 @@ export default function SessionDetailPage() {
             />
           )}
 
-          {/* Master Summary Card (for diet/gym trackers) */}
-          <MasterSummaryCard
-            summary={session.masterSummary}
-            trackerType={session.trackerType || 'general'}
-          />
+          {/* Workout Log Card (for gym tracker - structured data) */}
+          {(session.analysis?.sessionType === 'gym' || session.trackerType === 'gym') && (
+            <WorkoutLogCard workoutLog={session.workoutLog} />
+          )}
+
+          {/* Diet Log Card (for diet tracker - structured data) */}
+          {(session.analysis?.sessionType === 'diet' || session.trackerType === 'diet') && (
+            <DietLogCard dietLog={session.dietLog} />
+          )}
+
+          {/* Legacy Master Summary Card (fallback for sessions without structured data) */}
+          {!session.workoutLog && !session.dietLog && (
+            <MasterSummaryCard
+              summary={session.masterSummary}
+              trackerType={session.trackerType || 'general'}
+            />
+          )}
 
           {/* Events list */}
           {session.events.length > 0 ? (

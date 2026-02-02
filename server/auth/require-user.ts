@@ -20,18 +20,21 @@ export async function requireUser(): Promise<AuthUser> {
         throw new Error("Unauthorized");
     }
 
-    // Find or create internal user
+    // Fast path: check if user already exists
     let user = await prisma.user.findUnique({
         where: { clerkUserId },
-        select: { id: true, email: true, timezone: true },
+        select: { id: true, email: true, timezone: true, baseline: true },
     });
 
     if (!user) {
-        // First time this Clerk user is accessing the app - create internal user
+        // First time this Clerk user is accessing the app — fetch Clerk profile
         const clerkUser = await currentUser();
 
-        user = await prisma.user.create({
-            data: {
+        // Use upsert to handle concurrent requests atomically (avoids P2002 race condition)
+        user = await prisma.user.upsert({
+            where: { clerkUserId },
+            update: {},
+            create: {
                 clerkUserId,
                 email: clerkUser?.emailAddresses[0]?.emailAddress ?? `${clerkUserId}@clerk.user`,
                 name: clerkUser?.firstName
@@ -39,7 +42,7 @@ export async function requireUser(): Promise<AuthUser> {
                     : null,
                 timezone: "UTC",
             },
-            select: { id: true, email: true, timezone: true },
+            select: { id: true, email: true, timezone: true, baseline: true },
         });
     }
 
@@ -47,5 +50,6 @@ export async function requireUser(): Promise<AuthUser> {
         id: user.id,
         email: user.email,
         timezone: user.timezone,
+        hasBaseline: !!user.baseline,
     };
 }

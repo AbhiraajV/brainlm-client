@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate --schema=server/prisma/schema.prisma && next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='--max-old-space-size=2048' next start",
     "lint": "eslint",
     "test:coach": "tsx scripts/test-session-coach.ts",
     "test:events": "tsx scripts/test-session-events.ts",

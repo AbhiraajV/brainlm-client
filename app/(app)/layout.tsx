@@ -6,26 +6,18 @@ import { EventInput } from "@/components/event-input";
 import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
 import { TimezoneSync } from "@/components/TimezoneSync";
 import { requireUser } from "@/server/auth";
-import { prisma } from "@/server/prisma/client";
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-    // Get authenticated user (Clerk middleware ensures user is signed in)
-    const user = await requireUser();
+    // Get authenticated user — also returns hasBaseline (avoids a second DB query)
+    const [user, { has }] = await Promise.all([requireUser(), auth()]);
 
-    // Check if user has completed onboarding
-    const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { baseline: true },
-    });
-
-    if (!dbUser?.baseline) {
+    if (!user.hasBaseline) {
         redirect("/onboarding");
     }
 
     // Check if user has an active subscription (Clerk handles free trials)
-    const { has } = await auth();
     const hasSubscription = await has({ plan: "motif_monthly_plan" });
 
     if (!hasSubscription) {
