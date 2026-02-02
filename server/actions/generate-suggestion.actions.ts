@@ -57,14 +57,20 @@ const WORKOUT_SUGGESTION_PROMPT = `You are a workout planner. Your ONLY job is t
 FIRST, check if there is a "TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS)" section at the TOP of the input.
 
 IF PRE-DETERMINED WORKOUT EXISTS:
-- The muscle group and exercises are ALREADY DECIDED - DO NOT change them
+- VALIDATE IT FIRST by checking RECENT DAILY HISTORY
+- If the pre-determined muscle group is the SAME as the most recent workout, IGNORE IT and determine the correct muscle group using STEP 1 and STEP 2
+- Example: If pre-determined says "CHEST" but yesterday was also Chest → IGNORE and pick the next muscle in rotation
+- If the pre-determined muscle group is DIFFERENT from the most recent workout, use it
 - Use the listed exercises as your foundation
 - Look up weights/reps from HISTORICAL EVENTS for those specific exercises
 - You may add 1-2 similar exercises from history if needed
-- Skip directly to STEP 3 (finding weights from history)
 
-IF NO PRE-DETERMINED WORKOUT:
+IF NO PRE-DETERMINED WORKOUT OR IF PRE-DETERMINED IS INVALID:
 - Follow STEP 1 and STEP 2 below to determine the muscle group
+
+CRITICAL VALIDATION:
+- NEVER repeat the same muscle group as the most recent workout day
+- If analysis says "Chest" and most recent was "Chest", OVERRIDE and pick next in rotation
 
 === STEP 1: ANALYZE SPLIT PATTERN (ONLY IF NO PRE-DETERMINED) ===
 
@@ -483,46 +489,71 @@ function formatKnowledgeForWorkout(
     sections.push('');
   }
 
+  // Extract muscle group from yesterday's review for validation
+  let mostRecentMuscle = 'unknown';
+  if (knowledge.yesterdaysReview) {
+    const yesterdayLower = knowledge.yesterdaysReview.summary.toLowerCase();
+    const muscleGroupsCheck = ['chest', 'back', 'legs', 'shoulders', 'arms', 'push', 'pull', 'upper', 'lower'];
+    mostRecentMuscle = muscleGroupsCheck.find(m => yesterdayLower.includes(m)) || 'unknown';
+  }
+
   // If analysis exists with todaysPlan, inject it as authoritative context at the TOP
+  // BUT validate it against the most recent workout first
   if (analysis?.todaysPlan) {
     // Try to extract muscle group from summary (e.g., "chest workout" -> "chest")
     const summaryLower = analysis.todaysPlan.summary.toLowerCase();
     const muscleGroups = ['chest', 'back', 'legs', 'shoulders', 'arms', 'push', 'pull', 'upper', 'lower'];
     const detectedMuscle = muscleGroups.find(m => summaryLower.includes(m)) || 'unknown';
 
-    sections.push(`=== TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS - MANDATORY) ===`);
-    sections.push(`MUSCLE GROUP: ${detectedMuscle.toUpperCase()}`);
-    sections.push(`SUMMARY: ${analysis.todaysPlan.summary}`);
-    sections.push('');
+    // Check if the pre-determined muscle is the same as most recent - if so, flag it as invalid
+    const isInvalid = detectedMuscle !== 'unknown' && detectedMuscle === mostRecentMuscle;
 
-    // Check if there are any metrics (weights) provided in the analysis
-    const hasMetrics = analysis.todaysPlan.items.some(item => item.metrics.length > 0);
+    if (isInvalid) {
+      // Analysis suggested the same muscle as most recent workout - INVALID
+      sections.push(`=== WARNING: ANALYSIS SUGGESTED INVALID MUSCLE GROUP ===`);
+      sections.push(`Analysis suggested: ${detectedMuscle.toUpperCase()}`);
+      sections.push(`Most recent workout was: ${mostRecentMuscle.toUpperCase()}`);
+      sections.push(`THESE ARE THE SAME - DO NOT USE THE ANALYSIS SUGGESTION`);
+      sections.push(`YOU MUST: Use STEP 1 and STEP 2 below to determine the correct muscle group based on rotation.`);
+      sections.push(`NEVER repeat the same muscle group on consecutive days.`);
+      sections.push('');
+    } else {
+      // Analysis suggested a different muscle - VALID, use it
+      sections.push(`=== TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS) ===`);
+      sections.push(`MUSCLE GROUP: ${detectedMuscle.toUpperCase()}`);
+      sections.push(`SUMMARY: ${analysis.todaysPlan.summary}`);
+      sections.push(`MOST RECENT WORKOUT: ${mostRecentMuscle.toUpperCase()} (different - this suggestion is valid)`);
+      sections.push('');
 
-    if (analysis.todaysPlan.items.length > 0) {
-      sections.push(`EXERCISES TO INCLUDE:`);
-      for (const item of analysis.todaysPlan.items) {
-        sections.push(`- ${item.suggestion}`);
-        if (item.rationale) {
-          sections.push(`  Reason: ${item.rationale}`);
+      // Check if there are any metrics (weights) provided in the analysis
+      const hasMetrics = analysis.todaysPlan.items.some(item => item.metrics.length > 0);
+
+      if (analysis.todaysPlan.items.length > 0) {
+        sections.push(`EXERCISES TO INCLUDE:`);
+        for (const item of analysis.todaysPlan.items) {
+          sections.push(`- ${item.suggestion}`);
+          if (item.rationale) {
+            sections.push(`  Reason: ${item.rationale}`);
+          }
+          if (item.metrics.length > 0) {
+            const metricsStr = item.metrics.map(m => `${m.key}: ${m.value}`).join(', ');
+            sections.push(`  Targets: ${metricsStr}`);
+          }
         }
-        if (item.metrics.length > 0) {
-          const metricsStr = item.metrics.map(m => `${m.key}: ${m.value}`).join(', ');
-          sections.push(`  Targets: ${metricsStr}`);
-        }
+        sections.push('');
+      }
+
+      sections.push(`!!! CRITICAL: The muscle group above is ALREADY DETERMINED.`);
+      sections.push(`!!! DO NOT re-analyze the split pattern. Generate exercises for ${detectedMuscle.toUpperCase()} ONLY.`);
+
+      // If no metrics were provided, the analysis didn't have historical data for this muscle group
+      if (!hasMetrics) {
+        sections.push(`!!! WARNING: No historical weight data found for ${detectedMuscle} exercises.`);
+        sections.push(`!!! If you cannot find ${detectedMuscle} exercises in HISTORICAL EVENTS, use weight: "unknown" and notes: "No previous data - start light".`);
+        sections.push(`!!! DO NOT invent weights or dates. Only use data that exists.`);
       }
       sections.push('');
     }
-
-    sections.push(`!!! CRITICAL: The muscle group above is ALREADY DETERMINED.`);
-    sections.push(`!!! DO NOT re-analyze the split pattern. Generate exercises for ${detectedMuscle.toUpperCase()} ONLY.`);
-
-    // If no metrics were provided, the analysis didn't have historical data for this muscle group
-    if (!hasMetrics) {
-      sections.push(`!!! WARNING: No historical weight data found for ${detectedMuscle} exercises.`);
-      sections.push(`!!! If you cannot find ${detectedMuscle} exercises in HISTORICAL EVENTS, use weight: "unknown" and notes: "No previous data - start light".`);
-      sections.push(`!!! DO NOT invent weights or dates. Only use data that exists.`);
-    }
-    sections.push('');
   }
 
   sections.push(`=== SESSION INFO ===`);

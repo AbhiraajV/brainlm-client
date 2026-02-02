@@ -8,7 +8,7 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { SessionKnowledge, SessionAnalysis } from '@/lib/sessions/types';
+import type { SessionKnowledge, SessionAnalysis, TrackerType } from '@/lib/sessions/types';
 import {
   UNIVERSAL_ANALYSIS_PROMPT,
   SESSION_ANALYSIS_SCHEMA,
@@ -31,12 +31,14 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
  * @param sessionTitle - The session title
  * @param sessionGoal - The session goal/context
  * @param knowledge - The retrieved session knowledge
+ * @param trackerType - Optional tracker type for specialized formatting (e.g., 'gym' for rotation)
  * @returns Structured SessionAnalysis or null on error
  */
 export async function analyzeSession(
   sessionTitle: string,
   sessionGoal: string,
-  knowledge: SessionKnowledge
+  knowledge: SessionKnowledge,
+  trackerType?: TrackerType
 ): Promise<SessionAnalysis | null> {
   await requireUser();
 
@@ -46,7 +48,7 @@ export async function analyzeSession(
   }
 
   // Format knowledge into structured input
-  const input = formatKnowledgeForAnalysis(sessionTitle, sessionGoal, knowledge);
+  const input = formatKnowledgeForAnalysis(sessionTitle, sessionGoal, knowledge, trackerType);
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -62,7 +64,7 @@ export async function analyzeSession(
           { role: 'user', content: input },
         ],
         temperature: 0.2, // Low temperature for strict data adherence
-        max_tokens: 4000,
+        max_tokens: 8000, // Increased for detailed coach briefing
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -100,6 +102,8 @@ export async function analyzeSession(
           highlight: h.highlight as string | undefined,
           preTriggers: h.preTriggers as string[] | undefined,
           postEffects: h.postEffects as string[] | undefined,
+          emotionalContext: h.emotionalContext as string | undefined,
+          whatWorked: h.whatWorked as string | undefined,
         })),
         patterns: (parsed.patterns || []).map((p: Record<string, unknown>) => ({
           name: p.name as string,
@@ -125,6 +129,32 @@ export async function analyzeSession(
         context: parsed.context || '',
         userGoals: parsed.userGoals || undefined,
         userTargets: (parsed.userTargets as { key: string; value: string }[]) || undefined,
+        // New enhanced fields for detailed coaching
+        coachBriefing: parsed.coachBriefing ? {
+          userProfile: parsed.coachBriefing.userProfile as string,
+          whatGoesWrong: parsed.coachBriefing.whatGoesWrong as string,
+          whyItGoesWrong: parsed.coachBriefing.whyItGoesWrong as string,
+          howWeFixedItBefore: parsed.coachBriefing.howWeFixedItBefore as string,
+          todaysRisks: parsed.coachBriefing.todaysRisks as string,
+          recommendedApproach: parsed.coachBriefing.recommendedApproach as string,
+        } : undefined,
+        emotionalFactors: (parsed.emotionalFactors || []).map((e: Record<string, unknown>) => ({
+          trigger: e.trigger as string,
+          emotionalResponse: e.emotionalResponse as string,
+          behavioralImpact: e.behavioralImpact as string,
+          frequency: e.frequency as number,
+        })),
+        whatWorkedBefore: (parsed.whatWorkedBefore || []).map((w: Record<string, unknown>) => ({
+          situation: w.situation as string,
+          strategy: w.strategy as string,
+          outcome: w.outcome as string,
+          timesWorked: w.timesWorked as number,
+        })),
+        rootCauses: (parsed.rootCauses || []).map((r: Record<string, unknown>) => ({
+          behavior: r.behavior as string,
+          underlyingWhy: r.underlyingWhy as string,
+          evidence: r.evidence as string[],
+        })),
         generatedAt: new Date().toISOString(),
       };
 

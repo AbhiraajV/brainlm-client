@@ -2,6 +2,212 @@
 
 export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general';
 
+// ============================================================================
+// WORKOUT TRACKING TYPES
+// ============================================================================
+
+// Weight unit preferences
+export type WeightUnit = 'kg' | 'lbs';
+
+// Equipment types
+export type EquipmentType =
+  | 'barbell' | 'dumbbell' | 'cable' | 'machine' | 'bodyweight'
+  | 'kettlebell' | 'resistance_band' | 'smith_machine' | 'ez_bar' | 'trap_bar' | 'other';
+
+// Muscle groups
+export type MuscleGroup =
+  | 'chest' | 'back' | 'shoulders' | 'biceps' | 'triceps' | 'forearms'
+  | 'quadriceps' | 'hamstrings' | 'glutes' | 'calves' | 'abs' | 'obliques'
+  | 'lower_back' | 'traps' | 'lats' | 'full_body';
+
+// Set types
+export type SetType =
+  | 'warmup' | 'working' | 'top' | 'backoff' | 'dropset' | 'superset'
+  | 'rest_pause' | 'to_failure' | 'forced_reps' | 'myo_reps' | 'cluster' | 'amrap';
+
+// Laterality for unilateral exercises
+export type Laterality = 'bilateral' | 'unilateral_left' | 'unilateral_right' | 'alternating';
+
+// Form quality rating
+export type FormQuality = 'excellent' | 'good' | 'moderate' | 'poor';
+
+// PR flags for a set
+export interface PRFlags {
+  weightPR?: boolean;
+  repPR?: boolean;
+  volumePR?: boolean;
+  e1rmPR?: boolean;
+}
+
+// Tempo for controlled reps
+export interface SetTempo {
+  eccentric: number;
+  pauseBottom: number;
+  concentric: number;
+  pauseTop: number;
+}
+
+// Individual set
+export interface WorkoutSet {
+  setNumber: number;
+  setType: SetType;
+  targetReps?: number;
+  actualReps: number;
+  weight: number;
+  weightUnit: WeightUnit;
+  equipmentType: EquipmentType;
+  laterality: Laterality;
+  rpe?: number;                // 1-10 (optional)
+  rir?: number;                // Reps in reserve (optional)
+  tempo?: SetTempo;
+  restAfterSeconds?: number;
+  prFlags?: PRFlags;
+  formQuality?: FormQuality;
+  painDiscomfort?: string;
+  supersetWith?: string;
+  completedAt?: string;
+  notes?: string;
+}
+
+// Exercise entry with sets
+export interface ExerciseEntry {
+  id: string;
+  exerciseName: string;
+  muscleGroup: MuscleGroup;
+  secondaryMuscles?: MuscleGroup[];
+  equipmentType: EquipmentType;
+  sets: WorkoutSet[];
+  notes?: string;
+  orderIndex: number;
+}
+
+// Workout day summary
+export interface WorkoutDaySummary {
+  totalExercises: number;
+  totalSets: number;
+  totalReps: number;
+  totalVolume: number;
+  totalVolumeUnit: WeightUnit;
+  muscleGroupsWorked: MuscleGroup[];
+  prCount: number;
+}
+
+// Main workout log (replaces masterSummary for gym)
+export interface WorkoutLog {
+  id: string;
+  date: string;
+  workoutName?: string;        // "Push Day", "Arms & Abs"
+  muscleGroups: MuscleGroup[];
+  exercises: ExerciseEntry[];
+  summary: WorkoutDaySummary;
+  preferredUnit: WeightUnit;   // Auto-detected from user input
+  notes?: string;
+  workoutRating?: number;      // 1-5
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
+// DIET TRACKING TYPES
+// ============================================================================
+
+// Meal types
+export type MealType =
+  | 'breakfast' | 'morning_snack' | 'lunch' | 'afternoon_snack'
+  | 'dinner' | 'evening_snack' | 'pre_workout' | 'post_workout' | 'other';
+
+// Food source
+export type FoodSource = 'homemade' | 'restaurant' | 'fast_food' | 'packaged' | 'meal_prep' | 'other';
+
+// Serving units
+export type ServingUnit =
+  | 'g' | 'ml' | 'oz' | 'cup' | 'tbsp' | 'tsp' | 'piece' | 'slice' | 'serving' | 'scoop';
+
+// Core macros (always required)
+export interface Macros {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+// Extended macros (commonly tracked)
+export interface ExtendedMacros extends Macros {
+  fiber?: number;              // g
+  sugar?: number;              // g
+  sodium?: number;             // mg
+}
+
+// Individual food item
+export interface FoodItem {
+  id: string;
+  name: string;
+  brand?: string;
+  source: FoodSource;
+  servingSize: number;
+  servingUnit: ServingUnit;
+  macros: Macros;
+  fiber?: number;              // g
+  sugar?: number;              // g
+  sodium?: number;             // mg
+  notes?: string;
+  loggedAt: string;
+}
+
+// Meal entry
+export interface MealEntry {
+  id: string;
+  mealType: MealType;
+  time?: string;               // "12:30" or ISO timestamp
+  foods: FoodItem[];
+  totalMacros: Macros;
+  notes?: string;
+  orderIndex: number;
+}
+
+// Daily targets
+export interface DailyTargets {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+  sugar?: number;              // Max sugar target
+  sodium?: number;             // Max sodium target (mg)
+}
+
+// Progress tracking
+export interface DailyProgress {
+  consumed: ExtendedMacros;
+  remaining: Macros;
+  percentages: { calories: number; protein: number; carbs: number; fat: number };
+}
+
+// Diet day summary
+export interface DietDaySummary {
+  totalMeals: number;
+  totalFoods: number;
+  totalMacros: Macros;
+  totalFiber?: number;
+  totalSugar?: number;
+  totalSodium?: number;
+  targets: DailyTargets;
+  progress: DailyProgress;
+}
+
+// Main diet log (replaces masterSummary for diet)
+export interface DietLog {
+  id: string;
+  date: string;
+  meals: MealEntry[];
+  targets: DailyTargets;
+  summary: DietDaySummary;
+  waterIntake?: number;        // ml
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type MenstrualCyclePhase = 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
 
 export interface MenstrualCycleInfo {
@@ -218,7 +424,9 @@ export interface Session {
   analysis?: SessionAnalysis; // Universal structured analysis
   isCompleted?: boolean; // true when session is finalized
   trackerType?: TrackerType; // Specialized tracker type (diet, gym, addiction, general)
-  masterSummary?: string; // Master .md content for diet/gym trackers
+  masterSummary?: string; // Master .md content for diet/gym trackers (legacy)
+  workoutLog?: WorkoutLog; // Structured workout data for gym sessions
+  dietLog?: DietLog; // Structured diet data for diet sessions
   suggestedWorkout?: SuggestedWorkout; // AI-suggested workout for gym sessions
   suggestedDiet?: SuggestedDiet; // AI-suggested diet for diet sessions
 }
@@ -244,11 +452,15 @@ export interface SessionsActions {
     comment: string | null,
     status: 'pending' | 'generating' | 'completed' | 'failed',
     error?: string,
-    masterSummary?: string
+    masterSummary?: string,
+    workoutLog?: WorkoutLog,
+    dietLog?: DietLog
   ) => void;
   markSessionCompleted: (sessionId: string) => void;
   setTrackerType: (sessionId: string, type: TrackerType) => void;
   updateMasterSummary: (sessionId: string, summary: string) => void;
+  setWorkoutLog: (sessionId: string, workoutLog: WorkoutLog) => void;
+  setDietLog: (sessionId: string, dietLog: DietLog) => void;
   setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout) => void;
   setSuggestedDiet: (sessionId: string, diet: SuggestedDiet) => void;
 }

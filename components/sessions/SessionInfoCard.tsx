@@ -220,7 +220,7 @@ export function SessionInfoCard({
     async function generateAnalysis() {
       setIsLoadingAnalysis(true);
       try {
-        const result = await analyzeSession(title, context, knowledge!);
+        const result = await analyzeSession(title, context, knowledge!, trackerType);
         if (cancelled) return;
 
         if (result) {

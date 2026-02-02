@@ -11,7 +11,13 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { TrackerType, MenstrualCycleInfo, SessionAnalysis } from '@/lib/sessions/types';
+import type {
+  TrackerType,
+  MenstrualCycleInfo,
+  SessionAnalysis,
+  WorkoutLog,
+  DietLog,
+} from '@/lib/sessions/types';
 import {
   getEventCoachPrompt,
   hasMasterSummary,
@@ -82,8 +88,282 @@ ${briefing.recommendedApproach}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// JSON schema for diet/gym event responses
-const EVENT_RESPONSE_SCHEMA = {
+// ============================================================================
+// JSON SCHEMAS FOR OPENAI STRICT MODE
+// ============================================================================
+
+// Enum definitions for reuse
+const WEIGHT_UNIT_ENUM = ['kg', 'lbs'];
+const EQUIPMENT_TYPE_ENUM = [
+  'barbell', 'dumbbell', 'cable', 'machine', 'bodyweight',
+  'kettlebell', 'resistance_band', 'smith_machine', 'ez_bar', 'trap_bar', 'other'
+];
+const MUSCLE_GROUP_ENUM = [
+  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
+  'quadriceps', 'hamstrings', 'glutes', 'calves', 'abs', 'obliques',
+  'lower_back', 'traps', 'lats', 'full_body'
+];
+const SET_TYPE_ENUM = [
+  'warmup', 'working', 'top', 'backoff', 'dropset', 'superset',
+  'rest_pause', 'to_failure', 'forced_reps', 'myo_reps', 'cluster', 'amrap'
+];
+const LATERALITY_ENUM = ['bilateral', 'unilateral_left', 'unilateral_right', 'alternating'];
+const MEAL_TYPE_ENUM = [
+  'breakfast', 'morning_snack', 'lunch', 'afternoon_snack',
+  'dinner', 'evening_snack', 'pre_workout', 'post_workout', 'other'
+];
+const FOOD_SOURCE_ENUM = ['homemade', 'restaurant', 'fast_food', 'packaged', 'meal_prep', 'other'];
+const SERVING_UNIT_ENUM = ['g', 'ml', 'oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving', 'scoop'];
+
+// Helper to create nullable type for OpenAI strict mode
+const nullable = (schema: Record<string, unknown>) => ({
+  anyOf: [schema, { type: 'null' }]
+});
+
+// Workout Set Schema
+const WORKOUT_SET_SCHEMA = {
+  type: 'object',
+  properties: {
+    setNumber: { type: 'integer' },
+    setType: { type: 'string', enum: SET_TYPE_ENUM },
+    targetReps: nullable({ type: 'integer' }),
+    actualReps: { type: 'integer' },
+    weight: { type: 'number' },
+    weightUnit: { type: 'string', enum: WEIGHT_UNIT_ENUM },
+    equipmentType: { type: 'string', enum: EQUIPMENT_TYPE_ENUM },
+    laterality: { type: 'string', enum: LATERALITY_ENUM },
+    rpe: nullable({ type: 'number' }),
+    rir: nullable({ type: 'integer' }),
+    restAfterSeconds: nullable({ type: 'integer' }),
+    notes: nullable({ type: 'string' }),
+  },
+  required: [
+    'setNumber', 'setType', 'targetReps', 'actualReps', 'weight',
+    'weightUnit', 'equipmentType', 'laterality', 'rpe', 'rir',
+    'restAfterSeconds', 'notes'
+  ],
+  additionalProperties: false,
+};
+
+// Exercise Entry Schema
+const EXERCISE_ENTRY_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    exerciseName: { type: 'string' },
+    muscleGroup: { type: 'string', enum: MUSCLE_GROUP_ENUM },
+    secondaryMuscles: nullable({ type: 'array', items: { type: 'string', enum: MUSCLE_GROUP_ENUM } }),
+    equipmentType: { type: 'string', enum: EQUIPMENT_TYPE_ENUM },
+    sets: { type: 'array', items: WORKOUT_SET_SCHEMA },
+    notes: nullable({ type: 'string' }),
+    orderIndex: { type: 'integer' },
+  },
+  required: ['id', 'exerciseName', 'muscleGroup', 'secondaryMuscles', 'equipmentType', 'sets', 'notes', 'orderIndex'],
+  additionalProperties: false,
+};
+
+// Workout Day Summary Schema
+const WORKOUT_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    totalExercises: { type: 'integer' },
+    totalSets: { type: 'integer' },
+    totalReps: { type: 'integer' },
+    totalVolume: { type: 'number' },
+    totalVolumeUnit: { type: 'string', enum: WEIGHT_UNIT_ENUM },
+    muscleGroupsWorked: { type: 'array', items: { type: 'string', enum: MUSCLE_GROUP_ENUM } },
+    prCount: { type: 'integer' },
+  },
+  required: ['totalExercises', 'totalSets', 'totalReps', 'totalVolume', 'totalVolumeUnit', 'muscleGroupsWorked', 'prCount'],
+  additionalProperties: false,
+};
+
+// Full Workout Log Schema
+const WORKOUT_LOG_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    date: { type: 'string' },
+    workoutName: nullable({ type: 'string' }),
+    muscleGroups: { type: 'array', items: { type: 'string', enum: MUSCLE_GROUP_ENUM } },
+    exercises: { type: 'array', items: EXERCISE_ENTRY_SCHEMA },
+    summary: WORKOUT_SUMMARY_SCHEMA,
+    preferredUnit: { type: 'string', enum: WEIGHT_UNIT_ENUM },
+    notes: nullable({ type: 'string' }),
+    workoutRating: nullable({ type: 'integer' }),
+    createdAt: { type: 'string' },
+    updatedAt: { type: 'string' },
+  },
+  required: [
+    'id', 'date', 'workoutName', 'muscleGroups', 'exercises', 'summary',
+    'preferredUnit', 'notes', 'workoutRating', 'createdAt', 'updatedAt'
+  ],
+  additionalProperties: false,
+};
+
+// Macros Schema
+const MACROS_SCHEMA = {
+  type: 'object',
+  properties: {
+    calories: { type: 'number' },
+    protein: { type: 'number' },
+    carbs: { type: 'number' },
+    fat: { type: 'number' },
+  },
+  required: ['calories', 'protein', 'carbs', 'fat'],
+  additionalProperties: false,
+};
+
+// Food Item Schema
+const FOOD_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    brand: nullable({ type: 'string' }),
+    source: { type: 'string', enum: FOOD_SOURCE_ENUM },
+    servingSize: { type: 'number' },
+    servingUnit: { type: 'string', enum: SERVING_UNIT_ENUM },
+    macros: MACROS_SCHEMA,
+    fiber: nullable({ type: 'number' }),
+    sugar: nullable({ type: 'number' }),
+    sodium: nullable({ type: 'number' }),
+    notes: nullable({ type: 'string' }),
+    loggedAt: { type: 'string' },
+  },
+  required: [
+    'id', 'name', 'brand', 'source', 'servingSize', 'servingUnit',
+    'macros', 'fiber', 'sugar', 'sodium', 'notes', 'loggedAt'
+  ],
+  additionalProperties: false,
+};
+
+// Meal Entry Schema
+const MEAL_ENTRY_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    mealType: { type: 'string', enum: MEAL_TYPE_ENUM },
+    time: nullable({ type: 'string' }),
+    foods: { type: 'array', items: FOOD_ITEM_SCHEMA },
+    totalMacros: MACROS_SCHEMA,
+    notes: nullable({ type: 'string' }),
+    orderIndex: { type: 'integer' },
+  },
+  required: ['id', 'mealType', 'time', 'foods', 'totalMacros', 'notes', 'orderIndex'],
+  additionalProperties: false,
+};
+
+// Daily Targets Schema
+const DAILY_TARGETS_SCHEMA = {
+  type: 'object',
+  properties: {
+    calories: { type: 'number' },
+    protein: { type: 'number' },
+    carbs: { type: 'number' },
+    fat: { type: 'number' },
+    fiber: nullable({ type: 'number' }),
+    sugar: nullable({ type: 'number' }),
+    sodium: nullable({ type: 'number' }),
+  },
+  required: ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'],
+  additionalProperties: false,
+};
+
+// Daily Progress Schema
+const DAILY_PROGRESS_SCHEMA = {
+  type: 'object',
+  properties: {
+    consumed: {
+      type: 'object',
+      properties: {
+        calories: { type: 'number' },
+        protein: { type: 'number' },
+        carbs: { type: 'number' },
+        fat: { type: 'number' },
+        fiber: nullable({ type: 'number' }),
+        sugar: nullable({ type: 'number' }),
+        sodium: nullable({ type: 'number' }),
+      },
+      required: ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'],
+      additionalProperties: false,
+    },
+    remaining: MACROS_SCHEMA,
+    percentages: {
+      type: 'object',
+      properties: {
+        calories: { type: 'number' },
+        protein: { type: 'number' },
+        carbs: { type: 'number' },
+        fat: { type: 'number' },
+      },
+      required: ['calories', 'protein', 'carbs', 'fat'],
+      additionalProperties: false,
+    },
+  },
+  required: ['consumed', 'remaining', 'percentages'],
+  additionalProperties: false,
+};
+
+// Diet Day Summary Schema
+const DIET_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    totalMeals: { type: 'integer' },
+    totalFoods: { type: 'integer' },
+    totalMacros: MACROS_SCHEMA,
+    totalFiber: nullable({ type: 'number' }),
+    totalSugar: nullable({ type: 'number' }),
+    totalSodium: nullable({ type: 'number' }),
+    targets: DAILY_TARGETS_SCHEMA,
+    progress: DAILY_PROGRESS_SCHEMA,
+  },
+  required: ['totalMeals', 'totalFoods', 'totalMacros', 'totalFiber', 'totalSugar', 'totalSodium', 'targets', 'progress'],
+  additionalProperties: false,
+};
+
+// Full Diet Log Schema
+const DIET_LOG_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    date: { type: 'string' },
+    meals: { type: 'array', items: MEAL_ENTRY_SCHEMA },
+    targets: DAILY_TARGETS_SCHEMA,
+    summary: DIET_SUMMARY_SCHEMA,
+    waterIntake: nullable({ type: 'number' }),
+    notes: nullable({ type: 'string' }),
+    createdAt: { type: 'string' },
+    updatedAt: { type: 'string' },
+  },
+  required: ['id', 'date', 'meals', 'targets', 'summary', 'waterIntake', 'notes', 'createdAt', 'updatedAt'],
+  additionalProperties: false,
+};
+
+// Combined response schemas for gym and diet
+const GYM_EVENT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    workoutLog: WORKOUT_LOG_SCHEMA,
+    comment: { type: 'string' },
+  },
+  required: ['workoutLog', 'comment'],
+  additionalProperties: false,
+};
+
+const DIET_EVENT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    dietLog: DIET_LOG_SCHEMA,
+    comment: { type: 'string' },
+  },
+  required: ['dietLog', 'comment'],
+  additionalProperties: false,
+};
+
+// Legacy schema for backward compatibility (will be phased out)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _LEGACY_EVENT_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     masterSummary: { type: 'string' },
@@ -92,6 +372,47 @@ const EVENT_RESPONSE_SCHEMA = {
   required: ['masterSummary', 'comment'],
   additionalProperties: false,
 };
+
+// Helper to format current workout log for prompt context
+function formatWorkoutLogForPrompt(log?: WorkoutLog): string {
+  if (!log || log.exercises.length === 0) {
+    return '(No exercises logged yet today)';
+  }
+
+  const lines: string[] = [];
+  lines.push(`Date: ${log.date}`);
+  if (log.workoutName) lines.push(`Workout: ${log.workoutName}`);
+  lines.push(`Muscle groups: ${log.muscleGroups.join(', ')}`);
+  lines.push('');
+
+  for (const ex of log.exercises) {
+    lines.push(`${ex.exerciseName} (${ex.muscleGroup}, ${ex.equipmentType}):`);
+    for (const set of ex.sets) {
+      const setInfo = `  Set ${set.setNumber}: ${set.actualReps} reps @ ${set.weight}${set.weightUnit}`;
+      const notes = [set.setType !== 'working' ? set.setType : '', set.notes].filter(Boolean).join(', ');
+      lines.push(notes ? `${setInfo} [${notes}]` : setInfo);
+    }
+  }
+
+  lines.push('');
+  lines.push(`Summary: ${log.summary.totalExercises} exercises, ${log.summary.totalSets} sets, ${log.summary.totalReps} reps, ${log.summary.totalVolume}${log.summary.totalVolumeUnit} volume`);
+
+  return lines.join('\n');
+}
+
+// Helper to format current diet log for prompt context - returns ACTUAL JSON so LLM can merge properly
+function formatDietLogForPrompt(log?: DietLog): string {
+  if (!log || log.meals.length === 0) {
+    return '(No meals logged yet today - start fresh)';
+  }
+
+  // Return the ACTUAL JSON so LLM can properly add to existing meals
+  // This is critical - without the actual structure, LLM cannot merge properly
+  return `EXISTING DATA (you MUST preserve and add to this):
+${JSON.stringify(log, null, 2)}
+
+SUMMARY: ${log.meals.length} meals, ${log.summary.progress.consumed.calories} cal, ${log.summary.progress.consumed.protein}g protein consumed so far.`;
+}
 
 interface PreviousEvent {
   content: string;
@@ -115,7 +436,12 @@ interface TodaysPlan {
 
 export interface EventSuggestionResult {
   comment: string;
-  masterSummary?: string;
+  masterSummary?: string;  // Legacy - will be phased out
+  workoutLog?: WorkoutLog;
+  dietLog?: DietLog;
+  // JSON serialized versions (to work around Next.js Server Action serialization)
+  workoutLogJson?: string;
+  dietLogJson?: string;
 }
 
 /**
@@ -130,13 +456,15 @@ export interface EventSuggestionResult {
  * @param guide - The session guide name
  * @param keyContext - Domain knowledge from brain transfer
  * @param trackerType - Specialized tracker type (diet, gym, addiction, general)
- * @param currentMasterSummary - Current master summary (for diet/gym trackers)
+ * @param currentMasterSummary - Current master summary (for diet/gym trackers) - LEGACY
  * @param todaysEvents - All events from today (optional)
  * @param yesterdaysReview - Yesterday's review summary (optional)
  * @param todaysPlan - Today's daily plan with focus areas and targets (optional)
  * @param cyclePhase - Menstrual cycle phase info for female users (optional)
  * @param analysis - Session analysis with detailed briefing, patterns, and root causes (optional)
- * @returns The suggestion with comment and optional masterSummary, or an error
+ * @param currentWorkoutLog - Current structured workout log (for gym tracker)
+ * @param currentDietLog - Current structured diet log (for diet tracker)
+ * @returns The suggestion with comment and structured log data, or an error
  */
 export async function generateEventSuggestion(
   sessionId: string,
@@ -153,7 +481,9 @@ export async function generateEventSuggestion(
   yesterdaysReview?: YesterdaysReview,
   todaysPlan?: TodaysPlan,
   cyclePhase?: MenstrualCycleInfo,
-  analysis?: SessionAnalysis
+  analysis?: SessionAnalysis,
+  currentWorkoutLog?: WorkoutLog,
+  currentDietLog?: DietLog
 ): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
@@ -197,6 +527,13 @@ export async function generateEventSuggestion(
   const { coachBriefing, patternSummary, whatWorkedBefore, emotionalFactors, rootCauses } =
     formatEnhancedContext(analysis);
 
+  // Format current structured log for context
+  const currentLogContext = trackerType === 'gym'
+    ? formatWorkoutLogForPrompt(currentWorkoutLog)
+    : trackerType === 'diet'
+      ? formatDietLogForPrompt(currentDietLog)
+      : '(No structured log)';
+
   // Get the appropriate prompt for this tracker type
   const basePrompt = getEventCoachPrompt(trackerType);
 
@@ -212,6 +549,9 @@ export async function generateEventSuggestion(
     .replace('{{previousEvents}}', formattedPreviousEvents)
     .replace('{{newEvent}}', eventContent)
     .replace('{{currentMasterSummary}}', currentMasterSummary || '(No previous entries)')
+    .replace('{{currentLog}}', currentLogContext)
+    .replace('{{currentWorkoutLog}}', formatWorkoutLogForPrompt(currentWorkoutLog))
+    .replace('{{currentDietLog}}', formatDietLogForPrompt(currentDietLog))
     // Enhanced context from analysis
     .replace('{{coachBriefing}}', coachBriefing)
     .replace('{{patternSummary}}', patternSummary)
@@ -220,6 +560,18 @@ export async function generateEventSuggestion(
     .replace('{{rootCauses}}', rootCauses);
 
   try {
+    // Select appropriate schema based on tracker type
+    let responseSchema: Record<string, unknown> | null = null;
+    let schemaName = 'event_response';
+
+    if (trackerType === 'gym') {
+      responseSchema = GYM_EVENT_RESPONSE_SCHEMA;
+      schemaName = 'gym_event_response';
+    } else if (trackerType === 'diet') {
+      responseSchema = DIET_EVENT_RESPONSE_SCHEMA;
+      schemaName = 'diet_event_response';
+    }
+
     // Build request body
     const requestBody: Record<string, unknown> = {
       model: 'gpt-4o-mini',
@@ -228,17 +580,18 @@ export async function generateEventSuggestion(
         { role: 'user', content: `Event: ${eventContent}` },
       ],
       temperature: 0.7,
-      max_tokens: hasMasterSummary(trackerType) ? 1500 : 300,
+      // Increase max_tokens for structured responses (they're larger than markdown)
+      max_tokens: hasMasterSummary(trackerType) ? 4000 : 300,
     };
 
-    // Use JSON schema for diet/gym trackers
-    if (hasMasterSummary(trackerType)) {
+    // Use JSON schema for diet/gym trackers with strict mode
+    if (responseSchema) {
       requestBody.response_format = {
         type: 'json_schema',
         json_schema: {
-          name: 'event_response',
+          name: schemaName,
           strict: true,
-          schema: EVENT_RESPONSE_SCHEMA,
+          schema: responseSchema,
         },
       };
     }
@@ -255,28 +608,60 @@ export async function generateEventSuggestion(
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       console.error('[generateEventSuggestion] OpenAI error:', error);
+      // If schema validation failed, try without strict schema
+      if (error?.error?.code === 'invalid_json_schema') {
+        console.warn('[generateEventSuggestion] Schema validation failed, falling back to simple response');
+      }
       return { error: 'Failed to generate suggestion' };
     }
 
     const data = await response.json();
     const rawResponse = data.choices?.[0]?.message?.content?.trim();
+    const refusal = data.choices?.[0]?.message?.refusal;
+
+    // Log for debugging
+    console.log('[generateEventSuggestion] Raw response length:', rawResponse?.length);
+    console.log('[generateEventSuggestion] Tracker type:', trackerType);
+
+    if (refusal) {
+      console.error('[generateEventSuggestion] Model refused:', refusal);
+      return { error: 'Model refused to respond' };
+    }
 
     if (!rawResponse) {
       return { error: 'Empty response from AI' };
     }
 
     // Parse response based on tracker type
-    if (hasMasterSummary(trackerType)) {
-      // Diet/Gym: Parse JSON response
+    if (trackerType === 'gym') {
       try {
         const parsed = JSON.parse(rawResponse);
+        console.log('[generateEventSuggestion] Parsed gym response, has workoutLog:', !!parsed.workoutLog);
+        // Return workoutLog as serialized JSON string to avoid Next.js serialization issues
         return {
           comment: parsed.comment,
-          masterSummary: parsed.masterSummary || undefined,
+          workoutLogJson: parsed.workoutLog ? JSON.stringify(parsed.workoutLog) : undefined,
         };
-      } catch {
-        // Fallback: treat whole response as comment if JSON parsing fails
-        console.error('[generateEventSuggestion] Failed to parse JSON response');
+      } catch (parseError) {
+        console.error('[generateEventSuggestion] Failed to parse gym JSON response:', parseError);
+        console.error('[generateEventSuggestion] Raw response preview:', rawResponse.substring(0, 500));
+        return { comment: rawResponse };
+      }
+    } else if (trackerType === 'diet') {
+      try {
+        const parsed = JSON.parse(rawResponse);
+        console.log('[generateEventSuggestion] Parsed diet response, has dietLog:', !!parsed.dietLog);
+        if (parsed.dietLog) {
+          console.log('[generateEventSuggestion] dietLog meals count:', parsed.dietLog.meals?.length);
+        }
+        // Return dietLog as serialized JSON string to avoid Next.js serialization issues
+        return {
+          comment: parsed.comment,
+          dietLogJson: parsed.dietLog ? JSON.stringify(parsed.dietLog) : undefined,
+        };
+      } catch (parseError) {
+        console.error('[generateEventSuggestion] Failed to parse diet JSON response:', parseError);
+        console.error('[generateEventSuggestion] Raw response preview:', rawResponse.substring(0, 500));
         return { comment: rawResponse };
       }
     } else {

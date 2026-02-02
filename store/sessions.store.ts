@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet } from '@/lib/sessions/types';
+import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet, WorkoutLog, DietLog } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:sessions';
-const STORAGE_VERSION = 9; // Bumped for v9: SessionAnalysis
+const STORAGE_VERSION = 10; // Bumped for v10: Structured WorkoutLog/DietLog
 
 const initialState: SessionsState = {
   sessions: [],
@@ -36,7 +36,7 @@ const isValidSession = (session: unknown): session is Session => {
   );
 };
 
-// Migrate session to latest schema (v9)
+// Migrate session to latest schema (v10)
 const migrateSession = (session: Record<string, unknown>): Session => {
   return {
     id: session.id as string,
@@ -52,6 +52,8 @@ const migrateSession = (session: Record<string, unknown>): Session => {
     analysis: session.analysis as SessionAnalysis | undefined,
     trackerType: session.trackerType as TrackerType | undefined,
     masterSummary: session.masterSummary as string | undefined,
+    workoutLog: session.workoutLog as WorkoutLog | undefined,
+    dietLog: session.dietLog as DietLog | undefined,
     suggestedWorkout: session.suggestedWorkout as SuggestedWorkout | undefined,
     suggestedDiet: session.suggestedDiet as SuggestedDiet | undefined,
   };
@@ -233,7 +235,9 @@ export const useSessionsStore = create<SessionsStore>()(
         comment: string | null,
         status: 'pending' | 'generating' | 'completed' | 'failed',
         error?: string,
-        masterSummary?: string
+        masterSummary?: string,
+        workoutLog?: WorkoutLog,
+        dietLog?: DietLog
       ): void => {
         const now = new Date().toISOString();
 
@@ -252,8 +256,9 @@ export const useSessionsStore = create<SessionsStore>()(
                         }
                       : event
                   ),
-                  // Update masterSummary if provided (for diet/gym trackers)
                   ...(masterSummary !== undefined && { masterSummary }),
+                  ...(workoutLog !== undefined && { workoutLog }),
+                  ...(dietLog !== undefined && { dietLog }),
                   updatedAt: now,
                 }
               : session
@@ -280,6 +285,30 @@ export const useSessionsStore = create<SessionsStore>()(
           sessions: state.sessions.map((session) =>
             session.id === sessionId
               ? { ...session, masterSummary: summary, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setWorkoutLog: (sessionId: string, workoutLog: WorkoutLog): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, workoutLog, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setDietLog: (sessionId: string, dietLog: DietLog): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, dietLog, updatedAt: now }
               : session
           ),
         }));
