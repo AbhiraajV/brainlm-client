@@ -247,11 +247,12 @@ BEFORE writing todaysPlan, you MUST include this in your context field:
 - Most recent: [Muscle Group]
 - Detected split: [PPL/Upper-Lower/Bro/etc]
 - Today MUST be: [Next muscle in rotation]
+- Why this muscle: [1-sentence explanation citing the rotation position and wrap-around if applicable]
 - CHECK: Is todaysPlan suggesting [correct muscle]? YES/NO"
 
 If NO → REWRITE todaysPlan to follow rotation.
 
-EXAMPLE:
+EXAMPLE 1 (wrap-around — most recent is LAST in cycle):
 "ROTATION VALIDATION:
 - Jan 24: LEGS - Squats 280lbs x 6, Leg Press 400lbs x 10, RDL 185lbs x 8
 - Jan 25: BACK - Deadlifts 315lbs x 5, Rows 185lbs x 8, Pulldowns 150lbs x 10
@@ -259,7 +260,18 @@ EXAMPLE:
 - Most recent: CHEST (Jan 26)
 - Detected split: Legs → Back → Chest (3-day rotation)
 - Today MUST be: LEGS
+- Why this muscle: CHEST is the last in the 3-day rotation, so we wrap back to LEGS (start of new cycle).
 - CHECK: Is todaysPlan suggesting LEGS? YES ✓"
+
+EXAMPLE 2 (mid-cycle — most recent is NOT last):
+"ROTATION VALIDATION:
+- Jan 27: LEGS - Squats 285lbs x 5, Leg Press 400lbs x 10
+- Jan 28: BACK - Deadlifts 320lbs x 4, Rows 190lbs x 8
+- Most recent: BACK (Jan 28)
+- Detected split: Legs → Back → Chest (3-day rotation)
+- Today MUST be: CHEST
+- Why this muscle: BACK is position 2 of 3 in the rotation, so next is CHEST (position 3).
+- CHECK: Is todaysPlan suggesting CHEST? YES ✓"
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    ⚠️  CRITICAL RULES - READ FIRST  ⚠️                        ║
@@ -289,13 +301,17 @@ EXAMPLE:
 
 === ROTATION RULE (MANDATORY - VALIDATE BEFORE OUTPUT) ===
 
-STEP 1: List the last 3 workout dates and their muscle groups
-STEP 2: Identify the MOST RECENT workout's muscle group = X
-STEP 3: Today's workout MUST be DIFFERENT from X (follow rotation)
-STEP 4: Check for injuries/discomfort - see INJURY HANDLING section
+STEP 1: List the last 3+ workout dates and their muscle groups
+STEP 2: Identify the repeating rotation pattern (e.g. Legs → Back → Chest)
+STEP 3: Find where the MOST RECENT workout sits in that rotation
+STEP 4: The NEXT muscle is the one AFTER the most recent in the rotation.
+         **If the most recent muscle is the LAST in the rotation, WRAP to the FIRST.**
+         Example: Rotation = Legs → Back → Chest. Most recent = Chest (last). Today = LEGS (wrap to start of new cycle).
+STEP 5: Check for injuries/discomfort - see INJURY HANDLING section
 
 VALIDATION CHECK (do this before writing todaysPlan):
 - If todaysPlan muscle group = most recent muscle group → WRONG, follow rotation
+- If most recent is the LAST in the detected split → today MUST be the FIRST (wrap-around)
 - If injury exists → provide test protocol + pivot option (see below)
 
 === ROTATION IDENTIFICATION ===
@@ -663,6 +679,52 @@ For coachBriefing fields with no data, write "(No data available yet)"
 For emotionalFactors, whatWorkedBefore, rootCauses with no data, use empty arrays [].`;
 
 /**
+ * Detect muscle group from a review summary using broad exercise→muscle keyword mapping.
+ * Covers exercise names that don't contain the literal muscle-group word
+ * (e.g. "Bench Press" → CHEST, "Deadlift" → BACK).
+ */
+function detectMuscleGroupFromReview(summary: string): string {
+  const lower = summary.toLowerCase();
+
+  const groups: Record<string, string[]> = {
+    'CHEST/PUSH': [
+      'chest', 'bench', 'push-up', 'pushup', 'push up', 'push day', 'push session',
+      'incline db', 'incline dumbbell', 'decline', 'flye', 'fly', 'cable cross', 'pec', 'dip',
+    ],
+    'BACK/PULL': [
+      'back', 'pull-up', 'pullup', 'pull up', 'pull day', 'pull session', 'pulldown', 'lat pull',
+      'deadlift', 'row', 'barbell row', 'dumbbell row', 'cable row', 'face pull',
+      'chin-up', 'chinup', 'chin up', 't-bar',
+    ],
+    'LEGS': [
+      'leg', 'squat', 'lower', 'lunge', 'leg press', 'leg curl', 'leg extension',
+      'calf', 'rdl', 'romanian', 'hip thrust', 'hamstring', 'quad', 'glute',
+    ],
+    'SHOULDERS': [
+      'shoulder', 'ohp', 'overhead press', 'military press',
+      'lateral raise', 'front raise', 'rear delt', 'shrug',
+    ],
+    'ARMS': [
+      'arm', 'bicep', 'tricep', 'curl', 'hammer curl',
+      'skull crusher', 'tricep pushdown', 'preacher',
+    ],
+  };
+
+  let bestGroup = 'UNKNOWN';
+  let bestScore = 0;
+
+  for (const [group, keywords] of Object.entries(groups)) {
+    const score = keywords.filter(kw => lower.includes(kw)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestGroup = group;
+    }
+  }
+
+  return bestGroup;
+}
+
+/**
  * Format knowledge into structured input for the universal analyzer
  */
 export function formatKnowledgeForAnalysis(
@@ -706,21 +768,7 @@ export function formatKnowledgeForAnalysis(
 
       // Extract muscle group keywords from each review summary
       for (const review of dailyReviews) {
-        const summary = review.summary.toLowerCase();
-        let muscleGroup = 'UNKNOWN';
-
-        // Detect muscle group from summary content
-        if (summary.includes('chest') || summary.includes('bench') || summary.includes('push')) {
-          muscleGroup = 'CHEST/PUSH';
-        } else if (summary.includes('back') || summary.includes('pull') || summary.includes('deadlift') || summary.includes('row')) {
-          muscleGroup = 'BACK/PULL';
-        } else if (summary.includes('leg') || summary.includes('squat') || summary.includes('lower')) {
-          muscleGroup = 'LEGS';
-        } else if (summary.includes('shoulder') || summary.includes('press')) {
-          muscleGroup = 'SHOULDERS';
-        } else if (summary.includes('arm') || summary.includes('bicep') || summary.includes('tricep')) {
-          muscleGroup = 'ARMS';
-        }
+        const muscleGroup = detectMuscleGroupFromReview(review.summary);
 
         // Extract first line or first 100 chars of summary for exercises
         const exercisePreview = review.summary.split('\n')[0].substring(0, 100);

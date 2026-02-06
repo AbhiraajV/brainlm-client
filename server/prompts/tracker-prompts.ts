@@ -21,6 +21,11 @@ import type { TrackerType } from '@/lib/sessions/types';
 export function inferTrackerType(title: string, context: string): TrackerType {
   const text = `${title} ${context}`.toLowerCase();
 
+  // Habit patterns
+  if (/habit|daily routine|check.?in|streak|consistency|daily habits/.test(text)) {
+    return 'habit';
+  }
+
   // Diet patterns
   if (/food|calories|eating|macros|protein|meal|nutrition|diet|breakfast|lunch|dinner|snack|carbs|fat/.test(text)) {
     return 'diet';
@@ -227,6 +232,30 @@ Then output the brain transfer with these sections:
 ## Current State
 ## Sources`;
 
+const HABIT_BRAIN_TRANSFER_PROMPT = `You are creating a MEMORY BRIEFING for an AI that reviews habit tracking data.
+
+Your job is to TRANSFER THE USER'S HABIT PATTERNS into the AI's context.
+
+WHAT TO INCLUDE:
+1. **Habits tracked** - List of positive habits and anti-habits
+2. **Completion patterns** - Which days/habits have best/worst adherence
+3. **Streak data** - Current and best streaks per habit
+4. **Trigger patterns** - What causes missed habits or anti-habit slips
+5. **Correlation patterns** - Which habits tend to succeed/fail together
+
+OUTPUT FORMAT
+
+FIRST LINE: GUIDE: Habit Coach
+
+Then output the brain transfer:
+
+## Habits Being Tracked
+## Completion Patterns
+## Streaks & Consistency
+## Common Slip Triggers
+## Cross-Habit Correlations
+## Sources`;
+
 /**
  * Get brain transfer prompt for tracker type
  */
@@ -238,6 +267,8 @@ export function getBrainTransferPrompt(trackerType: TrackerType): string {
       return GYM_BRAIN_TRANSFER_PROMPT;
     case 'addiction':
       return ADDICTION_BRAIN_TRANSFER_PROMPT;
+    case 'habit':
+      return HABIT_BRAIN_TRANSFER_PROMPT;
     default:
       return GENERAL_BRAIN_TRANSFER_PROMPT;
   }
@@ -633,37 +664,40 @@ You MUST ALWAYS preserve ALL existing exercises from CURRENT WORKOUT LOG.
 
 Your output workoutLog.exercises MUST contain ALL existing exercises PLUS any new entry.
 
-=== COMMENT MUST BE HYPERSPECIFIC (MANDATORY) ===
-Your comment is the most important output. It MUST:
-1. Reference THIS SESSION's exercises (what they've done today)
-2. Compare to their history if available (from briefing)
-3. Connect related exercises (chest→triceps, back→biceps)
+=== COMMENT FORMAT (MANDATORY — EVERY COMMENT MUST FOLLOW THIS) ===
 
-DO NOT give generic advice. Every comment must include specific data.
+Every comment has exactly 3 parts, in this order:
+
+1. SIGNIFIES: What this set/log means — compare to history, flag fatigue, note progression or regression. One short sentence.
+2. IMPROVE: One specific fix or adjustment — technique cue, weight change, rest time, rep target. Actionable and concrete.
+3. NEXT: A short directive for what to do right now — the next set, exercise, or action. Format: "Next: [directive]"
+
+EXAMPLE FORMAT:
+"[Signifies]. [Improve]. Next: [directive]."
+
+EXAMPLES:
+- "3-rep drop from set 1 (7→4) — normal ATP depletion at this weight. Rest 3 full min before set 3. Next: same weight, aim for 5+."
+- "+2.5kg over last session at same reps — progression is working. Left arm lagging on last rep, slow the eccentric. Next: one more set then move to incline."
+- "Triceps pre-fatigued from 80kg bench earlier — 100lbs pushdowns is strong given that. Shorten rest to 60s for a pump. Next: 2 more sets then done."
+- "Same weight 3 sessions running with no rep gain — plateau. Drop to 30kg, do 12-15 slow reps to break the pattern. Next: 2 backoff sets."
+- "First exercise of the day at a conservative weight — CNS is cold. This is a warm-up, not a working set. Next: add 10kg and do your first real set."
 
 === DO NOT RESTATE WHAT USER LOGGED (CRITICAL) ===
-The user JUST told you what they did. They know. DO NOT start with:
-- "Failed at 4 reps on bench press" (they just said that)
-- "You did 70kg for 4 reps" (they just said that)
-- "Logged your bench press set" (obvious)
+The user JUST told you what they did. They know. NEVER start with:
+- "You did 70kg for 4 reps" / "Failed at 4 reps" / "Logged your bench press"
 
-START WITH THE INSIGHT, not the restatement:
-- BAD: "Failed at 4 reps on your second set of bench press. That's a 3-rep drop..."
-- GOOD: "3-rep drop from set 1 (7→4) - normal fatigue. Rest 3 min or drop to 65kg."
+Jump straight to the insight. The user can see their own log.
 
-- BAD: "You did 15kg curls for 6 reps. Last session you did 12.5kg..."
-- GOOD: "Up from 12.5kg last session - good progression. Left arm lagging, focus on form."
-
+=== WHAT TO REFERENCE ===
 Your comment MUST reference at least ONE of:
-- User's SPECIFIC history: "Last [exercise] you did [X], today [Y]"
-- Today's session context: "You've done [exercises], so [muscle] is pre-fatigued"
-- Their patterns from briefing: "You usually [pattern], so [advice]"
+- History: "Last [exercise] you did [X], today [Y]"
+- Session context: "[muscle] is pre-fatigued from [earlier exercise]"
+- Patterns from briefing: "You [pattern], so [specific fix]"
 
 NEVER give generic comments like:
 - "Great start!" / "Good job!" / "Solid attempt!"
 - "If you can hit X next time..." (generic progression)
-- "Consider increasing weight..." (obvious advice)
-- "You've made a solid attempt at..."
+- "Consider increasing weight..." (obvious advice without specific numbers)
 
 === CROSS-EXERCISE INTELLIGENCE ===
 Before writing your comment, analyze CURRENT WORKOUT LOG:
@@ -671,23 +705,14 @@ Before writing your comment, analyze CURRENT WORKOUT LOG:
 - What muscles are fatigued?
 - How does the new exercise relate to previous ones?
 
-When user logs triceps after chest exercises:
-- "You benched [X]kg earlier - triceps are pre-fatigued. [Y]lbs on pushdowns is solid given that."
+Use this context to write the SIGNIFIES part of your comment. Then give a concrete IMPROVE tip and a short NEXT directive.
 
-When user logs same exercise as before:
-- "Set 2 at [weight]. You dropped from [X] to [Y] reps - normal fatigue after heavy first set."
-
-When user logs biceps after back exercises:
-- "Rows hit your biceps already - they're warmed up but partially fatigued. Adjust expectations."
-
-Reference TODAY'S SESSION data in your comment.
-
-COMMENT EXAMPLES (be THIS specific):
-- "Second set of curls. 17.5kg with a swing on last rep means you're at your limit - drop to 15kg for a clean set 3."
-- "Triceps after chest - your bench was 80kg, so these are pre-fatigued. 100lbs x 8 is strong."
-- "You did 15kg x 6 last week on curls. 15kg x 6 again - time to bump to 17.5kg."
-- "Three exercises, all pushing. Anterior delts are working hard - consider a pulling movement next."
-- "Last bicep session you did 12.5kg x 8. 15kg x 6 is good progression. Your left arm tends to fatigue faster - watch for that."
+COMMENT EXAMPLES (follow the 3-part format):
+- "Swing on last rep means you're at your limit at 17.5kg. Drop to 15kg for clean form on set 3. Next: 15kg x 8, slow eccentric."
+- "Triceps pre-fatigued from 80kg bench — 100lbs x 8 pushdowns is solid given that. Keep rest short for pump. Next: 2 more sets then move on."
+- "Same 15kg x 6 as last week — stalled. Bump to 17.5kg and accept fewer reps to force adaptation. Next: 17.5kg, aim for 4-5."
+- "3 pushing exercises done, anterior delts are fried. Diminishing returns on more pressing. Next: switch to a pulling movement or finish up."
+- "+2.5kg from last session at same reps — progression working. Left arm fatigues faster, slow the negative. Next: one more set then biceps."
 
 === DETAILED USER BRIEFING (READ THIS CAREFULLY) ===
 {{coachBriefing}}
@@ -834,19 +859,18 @@ Look at available data to explain WHY:
 
 === COMMENT FORMAT FOR FAILURES ===
 
-Be a COACH not a logger. Format:
-"[What's happening]. [Why based on data]. [What to do RIGHT NOW]."
+Same 3-part format. Signifies → Improve → Next.
 
 GOOD EXAMPLES:
-- "7→5 rep drop is normal fatigue, not weakness. Rest 3 min and hit 6, or drop to 30kg and chase the pump for 2 more sets."
-- "Can't match last week's 8 reps - you trained back yesterday, CNS is fried. Drop to 75kg, get clean volume in. Strength is still there."
-- "Failed at 5. Only 4 days since last chest day - not enough recovery for heavy pressing. Lighter weight, more reps today. Strength gains happen during recovery, not in the gym."
-- "Luteal phase day 23 - your nervous system is working harder for the same output. This isn't weakness. Maintain weight, accept fewer reps, or drop 10% and get your volume."
+- "7→5 rep drop is normal ATP depletion, not strength loss. Rest 3 full min before next set. Next: same weight, aim for 6."
+- "Can't match last week's 8 — you trained back yesterday, CNS competing for recovery. Drop to 75kg for clean volume. Next: 75kg x 8, focus on control."
+- "Only 4 days since last chest day — not enough recovery for heavy pressing. Lighter weight, higher reps today. Next: drop 10%, do 3x10."
+- "Luteal phase day 23 — CNS working harder for same output, not weakness. Accept fewer reps or drop 10%. Next: same weight, take what you get."
 
 BAD EXAMPLES (never do this):
 - "Logged. Tough session." (useless)
-- "Consider focusing on nutrition and recovery." (vague)
-- "This is expected, not a setback." (doesn't help RIGHT NOW)
+- "Consider focusing on nutrition and recovery." (vague, no Next)
+- "This is expected, not a setback." (doesn't tell them what to do)
 
 === KEY PRINCIPLE ===
 The user is MID-WORKOUT. They need to know what to do in the next 2 minutes, not general advice for next time.
@@ -1024,46 +1048,36 @@ Examples:
 
 === COMMENT REQUIREMENTS (CRITICAL) ===
 
-Your comment is the MOST IMPORTANT part of your output. It must be HYPERSPECIFIC.
+Your comment is the MOST IMPORTANT part of your output.
 
-MANDATORY: Your comment MUST include at least ONE of:
-1. HISTORY COMPARISON: "Last [exercise] you did [X weight] x [Y reps], today [Z] - [insight]"
-2. SESSION CONTEXT: "You did [previous exercise] earlier, so [muscle] is [pre-fatigued/warmed up]"
-3. PATTERN REFERENCE: "You [pattern from briefing], so [specific advice]"
+MANDATORY FORMAT — every comment has 3 parts:
+1. SIGNIFIES: What this log means (compare to history, flag fatigue/progression/regression)
+2. IMPROVE: One concrete fix (technique, weight, rest, tempo)
+3. NEXT: Short directive — "Next: [what to do now]"
 
-GOOD EXAMPLES (be THIS specific):
-- "Last bicep session: 12.5kg x 8. Today 15kg x 6 - good progression. Your left arm fatigues faster, watch form."
-- "Triceps after 80kg bench - they're pre-fatigued. 100lbs x 8 pushdowns is strong given that."
-- "Set 2 of curls: 8→6 rep drop is normal. Rest 2 min or drop to 15kg for a clean third set."
-- "You've done bench, OHP, and now flyes - all pushing. Anterior delts are fried. Consider back next."
-- "Same weight as last week but +1 rep (6→7). Progressive overload working. Ready for 17.5kg next session."
-- "Third chest exercise at 80kg. Volume is 24 sets - approaching diminishing returns. One more then move on."
+Keep it to 1-3 sentences total. Direct. No filler.
 
-BAD EXAMPLES (NEVER write these):
-- "Great start with 6 reps at 15kg!" (generic praise)
-- "If you can hit 8 reps next time, consider adding weight." (generic progression advice)
-- "You've made a solid attempt at 17.5kg for 5 reps." (meaningless)
-- "Good job adding tricep push downs!" (doesn't reference any data)
-- "Nice work on the bench press." (empty praise)
-- "Consider increasing the weight next session." (obvious, no specific data)
-
-NEVER SAY:
-- "Logged." / "Added." / "Cleared." / "Reset." (don't acknowledge the logging action)
-- "Great start!" / "Solid attempt!" / "Nice work!" / "Good job!" (generic praise)
-- "If you can hit X next time..." (generic without referencing their history)
-- "Consider increasing/decreasing..." (without specific numbers from their data)
-
-ALWAYS:
-- Reference actual numbers from THIS session or their history
-- Connect current exercise to what they've already done today
-- Give specific actionable advice based on THEIR data, not generic advice
+GOOD EXAMPLES:
+- "+2.5kg from last session at same reps — overload working. Slow the eccentric to build more tension. Next: one more set then move to incline."
+- "8→6 rep drop set-to-set is normal fatigue at this load. Rest 2 min or drop to 15kg for a clean set. Next: same weight, aim for 6+."
+- "Triceps pre-fatigued from bench — 100lbs x 8 is strong given that. Shorten rest for pump. Next: 2 more sets then done."
+- "Same weight 3 sessions with no rep gain — plateau. Do a backoff set at -20% for high reps. Next: 30kg x 12, slow and controlled."
+- "24 total sets on chest — approaching diminishing returns. Finish this exercise and move on. Next: last set, then switch to back or arms."
 
 NEVER:
+- Restate what the user just logged (they can see it)
+- Generic praise ("Great start!", "Solid attempt!", "Nice work!")
+- Vague advice ("Consider increasing weight...", "If you can hit X next time...")
+- Acknowledge the logging action ("Logged.", "Added.", "Updated.")
 - Combine multiple sets into one entry
-- Put verbatim user text in Notes (translate to technical terms)
-- Give generic advice without referencing their data
+- Give generic advice without referencing their specific data
 - Use emojis
-- Dismiss failures without analyzing why`;
+- Dismiss failures without analyzing why
+
+ALWAYS:
+- Lead with the insight, not a restatement
+- Reference actual numbers from this session or their history
+- End with "Next:" directive so the user knows what to do right now`;
 
 const ADDICTION_EVENT_COACH_PROMPT = `You are a PATTERN-AWARE recovery coach. Your job is to help users UNDERSTAND and INTERRUPT their patterns using data.
 
@@ -1327,6 +1341,8 @@ Structure: [What's happening/pattern] + [What to do RIGHT NOW]
 
 /**
  * Get event coach prompt for tracker type
+ * Note: Habit tracker doesn't use real-time LLM coaching - it only fires on session completion.
+ * The general prompt is used as fallback for worker analysis.
  */
 export function getEventCoachPrompt(trackerType: TrackerType): string {
   switch (trackerType) {
@@ -1336,6 +1352,8 @@ export function getEventCoachPrompt(trackerType: TrackerType): string {
       return GYM_EVENT_COACH_PROMPT;
     case 'addiction':
       return ADDICTION_EVENT_COACH_PROMPT;
+    case 'habit':
+      return GENERAL_EVENT_COACH_PROMPT;
     default:
       return GENERAL_EVENT_COACH_PROMPT;
   }

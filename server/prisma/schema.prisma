@@ -46,6 +46,8 @@ model Event {
   occurredAt     DateTime
   createdAt      DateTime               @default(now())
   embedding      Unsupported("vector")?
+  rawJson        Json?                  // Structured data (WorkoutLog, DietLog, etc.)
+  trackedType    TrackedType?           // For filtering queries
   user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   insightEvents  InsightEvent[]
   interpretation Interpretation?
@@ -55,6 +57,8 @@ model Event {
   @@index([occurredAt])
   @@index([userId, occurredAt])
   @@index([userId, createdAt])
+  @@index([userId, trackedType])
+  @@index([userId, trackedType, occurredAt])
 }
 
 model Interpretation {
@@ -340,4 +344,12 @@ enum UOMDriftType {
   ADDITION
   MODIFICATION
   REMOVAL
+}
+
+enum TrackedType {
+  GYM
+  DIET
+  ADDICTION
+  GENERAL
+  HABIT
 }

@@ -1,6 +1,6 @@
 // Sessions Types
 
-export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general';
+export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general' | 'habit';
 
 // ============================================================================
 // WORKOUT TRACKING TYPES
@@ -39,6 +39,79 @@ export interface PRFlags {
   e1rmPR?: boolean;
 }
 
+// PR type for computed fields
+export type PRType = 'weight' | 'e1rm' | 'volume' | 'reps';
+
+// Computed fields for a set (populated by tool handlers)
+export interface SetComputed {
+  volume: number;              // weight * reps
+  e1rm: number;                // Estimated 1RM
+  isPR: boolean;
+  prType?: PRType;
+  previousBest?: {
+    value: number;
+    date: string;
+  };
+}
+
+// Computed fields for an exercise
+export interface ExerciseComputed {
+  totalVolume: number;
+  totalReps: number;
+  bestE1RM: number;
+  exercisePR?: {               // Best ever for this exercise
+    weight: number;
+    reps: number;
+    e1rm: number;
+    date: string;
+  };
+  lastSession?: {              // Last time this exercise was done
+    date: string;
+    topSet: { weight: number; reps: number };
+  };
+}
+
+// AI-predicted targets for an exercise (populated when AI creates exercise template)
+export interface ExerciseTargets {
+  weight: number;
+  weightUnit: WeightUnit;
+  reps: number;
+  sets: number;
+  rationale: string;           // AI's reasoning for these targets
+  confidence: 'high' | 'medium' | 'low';
+  source: 'history' | 'correlation' | 'estimation';
+}
+
+// PR summary for session-level tracking
+export interface PRSummary {
+  exerciseName: string;
+  prType: PRType;
+  newValue: number;
+  previousValue: number;
+  improvement: number;         // percentage
+}
+
+// Computed fields for workout session
+export interface WorkoutComputed {
+  totalVolume: number;
+  totalTonnage: number;
+  avgRPE?: number;
+
+  // Volume trends (from historical data)
+  weeklyVolumeByMuscle?: Record<MuscleGroup, number>;
+  volumeTrend?: 'increasing' | 'stable' | 'decreasing';
+
+  // Strength ratios
+  pushPullRatio?: number;
+
+  // Recovery metrics
+  daysSinceMuscleGroup?: Partial<Record<MuscleGroup, number>>;
+  recoveryRecommendation?: string;
+
+  // Session PRs
+  prsThisSession: PRSummary[];
+}
+
 // Tempo for controlled reps
 export interface SetTempo {
   eccentric: number;
@@ -67,6 +140,7 @@ export interface WorkoutSet {
   supersetWith?: string;
   completedAt?: string;
   notes?: string;
+  computed?: SetComputed;      // Computed fields (populated by tool handlers)
 }
 
 // Exercise entry with sets
@@ -79,6 +153,8 @@ export interface ExerciseEntry {
   sets: WorkoutSet[];
   notes?: string;
   orderIndex: number;
+  targets?: ExerciseTargets;   // AI-predicted targets for this exercise
+  computed?: ExerciseComputed; // Computed fields (populated by tool handlers)
 }
 
 // Workout day summary
@@ -105,6 +181,43 @@ export interface WorkoutLog {
   workoutRating?: number;      // 1-5
   createdAt: string;
   updatedAt: string;
+  computed?: WorkoutComputed;  // Computed fields (session-level metrics)
+  templateId?: string;         // ID of template this workout was created from
+  templateName?: string;       // Name of template for display
+}
+
+// ============================================================================
+// WORKOUT TEMPLATE TYPES
+// ============================================================================
+
+// Template exercise (target structure, no actual sets)
+export interface TemplateExercise {
+  id: string;
+  exerciseName: string;
+  muscleGroup: MuscleGroup;
+  secondaryMuscles?: MuscleGroup[];
+  equipmentType: EquipmentType;
+  targetSets: number;
+  targetReps: number;
+  targetWeight?: number;
+  targetWeightUnit?: WeightUnit;
+  restSeconds?: number;
+  notes?: string;
+  orderIndex: number;
+}
+
+// Workout template
+export interface WorkoutTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  muscleGroups: MuscleGroup[];
+  exercises: TemplateExercise[];
+  estimatedDuration?: number;    // minutes
+  createdAt: string;
+  updatedAt: string;
+  usageCount: number;
+  lastUsedAt?: string;
 }
 
 // ============================================================================
@@ -208,6 +321,50 @@ export interface DietLog {
   updatedAt: string;
 }
 
+// ============================================================================
+// HABIT TRACKING TYPES
+// ============================================================================
+
+export type HabitPolarity = 'positive' | 'negative';
+
+export interface HabitDefinition {
+  id: string;              // Stable UUID across days
+  name: string;
+  polarity: HabitPolarity;
+  orderIndex: number;
+  createdAt: string;
+  isArchived: boolean;
+}
+
+export interface HabitEntry {
+  habitId: string;
+  habitName: string;       // Denormalized for history
+  polarity: HabitPolarity; // Denormalized
+  status: 'pending' | 'done' | 'skipped';
+  comment?: string;        // Plain text reflection
+  checkedAt?: string;
+}
+
+export interface HabitDaySummary {
+  totalHabits: number;
+  totalAntiHabits: number;
+  completedHabits: number;    // Positive habits marked done
+  failedAntiHabits: number;   // Anti-habits marked done (user did the bad thing)
+  skippedCount: number;
+  completionRate: number;     // 0-100
+  allPositivesDone: boolean;  // Trigger for completion prompt
+}
+
+export interface HabitLog {
+  id: string;
+  date: string;            // YYYY-MM-DD
+  entries: HabitEntry[];
+  summary: HabitDaySummary;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type MenstrualCyclePhase = 'menstrual' | 'follicular' | 'ovulation' | 'luteal';
 
 export interface MenstrualCycleInfo {
@@ -269,7 +426,7 @@ export interface KnowledgeDailyPlan {
 
 export interface SessionKnowledge {
   retrievedAt: string;
-  seed: string; // The seed used for retrieval
+  seed?: string; // Deprecated - kept for backward compatibility
   events: KnowledgeEvent[];
   interpretations: KnowledgeInterpretation[];
   patterns: KnowledgePattern[];
@@ -427,6 +584,7 @@ export interface Session {
   masterSummary?: string; // Master .md content for diet/gym trackers (legacy)
   workoutLog?: WorkoutLog; // Structured workout data for gym sessions
   dietLog?: DietLog; // Structured diet data for diet sessions
+  habitLog?: HabitLog; // Structured habit data for habit sessions
   suggestedWorkout?: SuggestedWorkout; // AI-suggested workout for gym sessions
   suggestedDiet?: SuggestedDiet; // AI-suggested diet for diet sessions
 }
@@ -461,8 +619,107 @@ export interface SessionsActions {
   updateMasterSummary: (sessionId: string, summary: string) => void;
   setWorkoutLog: (sessionId: string, workoutLog: WorkoutLog) => void;
   setDietLog: (sessionId: string, dietLog: DietLog) => void;
+  setHabitLog: (sessionId: string, habitLog: HabitLog) => void;
   setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout) => void;
   setSuggestedDiet: (sessionId: string, diet: SuggestedDiet) => void;
 }
 
 export type SessionsStore = SessionsState & SessionsActions;
+
+// ============================================================================
+// CLIENT-SIDE CACHE TYPES
+// ============================================================================
+
+/**
+ * Timestamps for tracking when each content type was last fetched.
+ * Used for delta fetching - only fetch items created AFTER these timestamps.
+ */
+export interface KnowledgeCacheTimestamps {
+  lastInterpretationAt: string | null;  // ISO timestamp
+  lastPatternAt: string | null;
+  lastInsightAt: string | null;
+  lastReviewAt: string | null;
+  lastEventAt: string | null;
+}
+
+/**
+ * Cached knowledge for a tracker type.
+ * Stored client-side in localStorage via Zustand.
+ */
+export interface CachedKnowledge {
+  knowledge: SessionKnowledge;
+  seed: string;
+  timestamps: KnowledgeCacheTimestamps;
+  baselineHash: string | null;  // MD5 of user baseline - invalidate if changed
+  generatedAt: string;          // When cache was created
+  updatedAt: string;            // When cache was last updated (delta merge)
+}
+
+/**
+ * Cached analysis for a tracker type.
+ * Stored client-side in localStorage via Zustand.
+ */
+export interface CachedAnalysis {
+  analysis: SessionAnalysis;
+  lastEventId: string | null;   // Last completed Event ID from DB
+  lastEventAt: string | null;   // Timestamp of last Event
+  eventCount: number;           // Total events at cache time
+  baselineHash: string | null;  // MD5 of user baseline
+  generatedAt: string;
+}
+
+/**
+ * PR record for an exercise
+ */
+export interface ExercisePR {
+  weight: number;
+  reps: number;
+  e1rm: number;
+  date: string;
+  eventId?: string;
+}
+
+/**
+ * Cached gym data (PR history)
+ */
+export interface CachedGymData {
+  exercisePRs: Record<string, ExercisePR>;  // exerciseName -> PR
+  lastEventId: string | null;
+  lastEventAt: string | null;
+  eventCount: number;
+  updatedAt: string;
+}
+
+/**
+ * Full cache state - stored in separate Zustand store
+ */
+export interface CacheState {
+  knowledgeCache: Partial<Record<TrackerType, CachedKnowledge>>;
+  analysisCache: Partial<Record<TrackerType, CachedAnalysis>>;
+  gymDataCache: CachedGymData | null;
+}
+
+/**
+ * Cache store actions
+ */
+export interface CacheActions {
+  // Knowledge cache
+  setKnowledgeCache: (trackerType: TrackerType, cache: CachedKnowledge) => void;
+  updateKnowledgeCache: (trackerType: TrackerType, updates: Partial<CachedKnowledge>) => void;
+  clearKnowledgeCache: (trackerType?: TrackerType) => void;
+
+  // Analysis cache
+  setAnalysisCache: (trackerType: TrackerType, cache: CachedAnalysis) => void;
+  updateAnalysisCache: (trackerType: TrackerType, updates: Partial<CachedAnalysis>) => void;
+  clearAnalysisCache: (trackerType?: TrackerType) => void;
+
+  // Gym data cache
+  setGymDataCache: (cache: CachedGymData) => void;
+  updateExercisePR: (exerciseName: string, pr: ExercisePR) => void;
+  clearGymDataCache: () => void;
+
+  // Clear all caches
+  clearAllCaches: () => void;
+}
+
+export type CacheStore = CacheState & CacheActions;

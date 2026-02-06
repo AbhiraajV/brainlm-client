@@ -18,12 +18,19 @@ export interface TodaysEvent {
  * using the user's local timezone.
  */
 export function useTodaysEventsFromCache(): TodaysEvent[] {
-  const getAllEvents = useEventsCacheStore((state) => state.getAllEvents);
-  const allEvents = getAllEvents();
+  // Select stable references from store - don't call getAllEvents() which creates new array
+  const events = useEventsCacheStore((state) => state.events);
+  const eventIds = useEventsCacheStore((state) => state.eventIds);
+  const pendingEvents = useEventsCacheStore((state) => state.pendingEvents);
 
   return useMemo(() => {
     const timezone = getUserTimezone();
     const { start, end } = getLocalDayBoundaries(timezone, 0);
+
+    // Reconstruct all events from stable store references
+    const pending = Object.values(pendingEvents);
+    const cached = eventIds.map(id => events[id]).filter(Boolean);
+    const allEvents = [...pending, ...cached];
 
     return allEvents
       .filter(event => {
@@ -38,5 +45,5 @@ export function useTodaysEventsFromCache(): TodaysEvent[] {
       }))
       // Sort by occurredAt descending (most recent first)
       .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
-  }, [allEvents]);
+  }, [events, eventIds, pendingEvents]);
 }

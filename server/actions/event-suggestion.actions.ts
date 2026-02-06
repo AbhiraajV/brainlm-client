@@ -22,6 +22,9 @@ import {
   getEventCoachPrompt,
   hasMasterSummary,
 } from '@/server/prompts/tracker-prompts';
+import { executeGymCoachAgent, type LastLoggedSet } from '@/server/agents/gym-coach-agent';
+import { executeDietCoachAgent, type LastLoggedFood } from '@/server/agents/diet-coach-agent';
+import type { PRSummary } from '@/lib/sessions/types';
 
 /**
  * Format the enhanced context from session analysis for coach prompts
@@ -373,6 +376,30 @@ const _LEGACY_EVENT_RESPONSE_SCHEMA = {
   additionalProperties: false,
 };
 
+// Helper to create an empty workout log with default values
+function createEmptyWorkoutLog(): WorkoutLog {
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
+  return {
+    id: `workout_${Date.now()}`,
+    date: today,
+    muscleGroups: [],
+    exercises: [],
+    summary: {
+      totalExercises: 0,
+      totalSets: 0,
+      totalReps: 0,
+      totalVolume: 0,
+      totalVolumeUnit: 'kg',
+      muscleGroupsWorked: [],
+      prCount: 0
+    },
+    preferredUnit: 'kg',
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
 // Helper to format current workout log for prompt context
 function formatWorkoutLogForPrompt(log?: WorkoutLog): string {
   if (!log || log.exercises.length === 0) {
@@ -442,6 +469,12 @@ export interface EventSuggestionResult {
   // JSON serialized versions (to work around Next.js Server Action serialization)
   workoutLogJson?: string;
   dietLogJson?: string;
+  // PRs detected during this event (for gym tracker celebration)
+  prsDetected?: PRSummary[];
+  // Last logged set for "another set" context continuity
+  lastLoggedSet?: LastLoggedSet;
+  // Last logged food for "another one" context continuity
+  lastLoggedFood?: LastLoggedFood;
 }
 
 /**
@@ -483,7 +516,9 @@ export async function generateEventSuggestion(
   cyclePhase?: MenstrualCycleInfo,
   analysis?: SessionAnalysis,
   currentWorkoutLog?: WorkoutLog,
-  currentDietLog?: DietLog
+  currentDietLog?: DietLog,
+  lastLoggedSet?: LastLoggedSet,
+  lastLoggedFood?: LastLoggedFood
 ): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
@@ -560,19 +595,111 @@ export async function generateEventSuggestion(
     .replace('{{rootCauses}}', rootCauses);
 
   try {
-    // Select appropriate schema based on tracker type
-    let responseSchema: Record<string, unknown> | null = null;
-    let schemaName = 'event_response';
-
+    // =====================================================================
+    // GYM TRACKER: Use tool-calling agent for real-time workout tracking
+    // =====================================================================
     if (trackerType === 'gym') {
-      responseSchema = GYM_EVENT_RESPONSE_SCHEMA;
-      schemaName = 'gym_event_response';
-    } else if (trackerType === 'diet') {
-      responseSchema = DIET_EVENT_RESPONSE_SCHEMA;
-      schemaName = 'diet_event_response';
+      console.log('[generateEventSuggestion] Using gym coach agent with tool calling');
+
+      // Create empty workout log if none exists
+      const workoutLog: WorkoutLog = currentWorkoutLog || createEmptyWorkoutLog();
+
+      // Build previous messages for context - include BOTH user messages AND coach responses
+      // This gives the coach full conversation awareness for coherent interactions
+      const previousChatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
+      for (const e of previousEvents.slice(-10)) {
+        // User's event
+        previousChatMessages.push({
+          role: 'user' as const,
+          content: e.content
+        });
+        // Coach's response (if any)
+        if (e.llmComment) {
+          previousChatMessages.push({
+            role: 'assistant' as const,
+            content: e.llmComment
+          });
+        }
+      }
+
+      // Execute the gym coach agent with tool calling
+      const agentResult = await executeGymCoachAgent(
+        workoutLog,
+        eventContent,
+        keyContext,
+        previousChatMessages,
+        analysis,
+        cyclePhase,
+        lastLoggedSet
+      );
+
+      // Return the result
+      console.log('[generateEventSuggestion] Agent result:', {
+        toolsUsed: agentResult.toolsUsed,
+        prsDetected: agentResult.prsDetected.length,
+        lastLoggedSet: agentResult.lastLoggedSet,
+        error: agentResult.error
+      });
+
+      return {
+        comment: agentResult.coachComment,
+        workoutLogJson: JSON.stringify(agentResult.updatedWorkout),
+        prsDetected: agentResult.prsDetected,
+        lastLoggedSet: agentResult.lastLoggedSet
+      };
     }
 
-    // Build request body
+    // =====================================================================
+    // DIET TRACKER: Use tool-calling agent for real-time diet tracking
+    // =====================================================================
+    if (trackerType === 'diet') {
+      console.log('[generateEventSuggestion] Using diet coach agent with tool calling');
+
+      // Build previous messages for context - include BOTH user messages AND coach responses
+      const previousChatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
+      for (const e of previousEvents.slice(-10)) {
+        // User's event
+        previousChatMessages.push({
+          role: 'user' as const,
+          content: e.content
+        });
+        // Coach's response (if any)
+        if (e.llmComment) {
+          previousChatMessages.push({
+            role: 'assistant' as const,
+            content: e.llmComment
+          });
+        }
+      }
+
+      // Execute the diet coach agent with tool calling
+      const agentResult = await executeDietCoachAgent(
+        currentDietLog,
+        eventContent,
+        keyContext,
+        previousChatMessages,
+        analysis,
+        cyclePhase,
+        lastLoggedFood
+      );
+
+      // Return the result
+      console.log('[generateEventSuggestion] Diet agent result:', {
+        toolsUsed: agentResult.toolsUsed,
+        lastLoggedFood: agentResult.lastLoggedFood,
+        error: agentResult.error
+      });
+
+      return {
+        comment: agentResult.coachComment,
+        dietLogJson: JSON.stringify(agentResult.updatedDietLog),
+        lastLoggedFood: agentResult.lastLoggedFood
+      };
+    }
+
+    // =====================================================================
+    // ADDICTION & GENERAL TRACKERS: Use simple OpenAI response
+    // =====================================================================
     const requestBody: Record<string, unknown> = {
       model: 'gpt-4o-mini',
       messages: [
@@ -580,21 +707,8 @@ export async function generateEventSuggestion(
         { role: 'user', content: `Event: ${eventContent}` },
       ],
       temperature: 0.7,
-      // Increase max_tokens for structured responses (they're larger than markdown)
       max_tokens: hasMasterSummary(trackerType) ? 4000 : 300,
     };
-
-    // Use JSON schema for diet/gym trackers with strict mode
-    if (responseSchema) {
-      requestBody.response_format = {
-        type: 'json_schema',
-        json_schema: {
-          name: schemaName,
-          strict: true,
-          schema: responseSchema,
-        },
-      };
-    }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -608,10 +722,6 @@ export async function generateEventSuggestion(
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       console.error('[generateEventSuggestion] OpenAI error:', error);
-      // If schema validation failed, try without strict schema
-      if (error?.error?.code === 'invalid_json_schema') {
-        console.warn('[generateEventSuggestion] Schema validation failed, falling back to simple response');
-      }
       return { error: 'Failed to generate suggestion' };
     }
 
@@ -619,7 +729,6 @@ export async function generateEventSuggestion(
     const rawResponse = data.choices?.[0]?.message?.content?.trim();
     const refusal = data.choices?.[0]?.message?.refusal;
 
-    // Log for debugging
     console.log('[generateEventSuggestion] Raw response length:', rawResponse?.length);
     console.log('[generateEventSuggestion] Tracker type:', trackerType);
 
@@ -632,42 +741,8 @@ export async function generateEventSuggestion(
       return { error: 'Empty response from AI' };
     }
 
-    // Parse response based on tracker type
-    if (trackerType === 'gym') {
-      try {
-        const parsed = JSON.parse(rawResponse);
-        console.log('[generateEventSuggestion] Parsed gym response, has workoutLog:', !!parsed.workoutLog);
-        // Return workoutLog as serialized JSON string to avoid Next.js serialization issues
-        return {
-          comment: parsed.comment,
-          workoutLogJson: parsed.workoutLog ? JSON.stringify(parsed.workoutLog) : undefined,
-        };
-      } catch (parseError) {
-        console.error('[generateEventSuggestion] Failed to parse gym JSON response:', parseError);
-        console.error('[generateEventSuggestion] Raw response preview:', rawResponse.substring(0, 500));
-        return { comment: rawResponse };
-      }
-    } else if (trackerType === 'diet') {
-      try {
-        const parsed = JSON.parse(rawResponse);
-        console.log('[generateEventSuggestion] Parsed diet response, has dietLog:', !!parsed.dietLog);
-        if (parsed.dietLog) {
-          console.log('[generateEventSuggestion] dietLog meals count:', parsed.dietLog.meals?.length);
-        }
-        // Return dietLog as serialized JSON string to avoid Next.js serialization issues
-        return {
-          comment: parsed.comment,
-          dietLogJson: parsed.dietLog ? JSON.stringify(parsed.dietLog) : undefined,
-        };
-      } catch (parseError) {
-        console.error('[generateEventSuggestion] Failed to parse diet JSON response:', parseError);
-        console.error('[generateEventSuggestion] Raw response preview:', rawResponse.substring(0, 500));
-        return { comment: rawResponse };
-      }
-    } else {
-      // Addiction/General: Use raw response as comment
-      return { comment: rawResponse };
-    }
+    // Addiction/General: Use raw response as comment
+    return { comment: rawResponse };
   } catch (error) {
     console.error('[generateEventSuggestion] Error:', error);
     return { error: 'Network error - please try again' };

@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet, WorkoutLog, DietLog } from '@/lib/sessions/types';
+import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet, WorkoutLog, DietLog, HabitLog } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:sessions';
-const STORAGE_VERSION = 10; // Bumped for v10: Structured WorkoutLog/DietLog
+const STORAGE_VERSION = 11; // Bumped for v11: HabitLog support
 
 const initialState: SessionsState = {
   sessions: [],
@@ -54,6 +54,7 @@ const migrateSession = (session: Record<string, unknown>): Session => {
     masterSummary: session.masterSummary as string | undefined,
     workoutLog: session.workoutLog as WorkoutLog | undefined,
     dietLog: session.dietLog as DietLog | undefined,
+    habitLog: session.habitLog as HabitLog | undefined,
     suggestedWorkout: session.suggestedWorkout as SuggestedWorkout | undefined,
     suggestedDiet: session.suggestedDiet as SuggestedDiet | undefined,
   };
@@ -314,6 +315,18 @@ export const useSessionsStore = create<SessionsStore>()(
         }));
       },
 
+      setHabitLog: (sessionId: string, habitLog: HabitLog): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, habitLog, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
       setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout): void => {
         const now = new Date().toISOString();
 
@@ -405,3 +418,7 @@ export const useSessionsStore = create<SessionsStore>()(
 export const selectSessions = (state: SessionsStore) => state.sessions;
 export const selectSessionById = (id: string) => (state: SessionsStore) =>
   state.sessions.find((s) => s.id === id);
+
+// Stable selector hook - avoids creating new function on every render
+export const useSession = (id: string) =>
+  useSessionsStore((state) => state.sessions.find((s) => s.id === id));

@@ -9,6 +9,7 @@ import type {
   KnowledgePattern,
   KnowledgeInsight,
   KnowledgeReview,
+  TrackerType,
 } from '@/lib/sessions/types';
 import { fetchSessionKnowledge } from '@/server/actions/session-knowledge.actions';
 import { useSessionsStore } from '@/store/sessions.store';
@@ -19,6 +20,7 @@ interface SessionKnowledgeProps {
   title: string;
   context: string;
   knowledge?: SessionKnowledgeType;
+  trackerType?: TrackerType;
 }
 
 // Section configurations
@@ -167,7 +169,7 @@ function SeedDisplay({ seed }: { seed: string }) {
   );
 }
 
-export function SessionKnowledge({ sessionId, title, context, knowledge }: SessionKnowledgeProps) {
+export function SessionKnowledge({ sessionId, title, context, knowledge, trackerType }: SessionKnowledgeProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,7 +189,10 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
   // Fetch knowledge if not already present
   useEffect(() => {
     if (knowledge) return;
+    // Don't fetch for general sessions (trackerType-based queries don't apply)
+    if (!trackerType || trackerType === 'general') return;
 
+    const currentTrackerType = trackerType;
     let cancelled = false;
 
     async function loadKnowledge() {
@@ -196,14 +201,14 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
 
       try {
         console.log('[SessionKnowledge] Fetching knowledge for session:', sessionId);
-        const result = await fetchSessionKnowledge(title, context);
+        const result = await fetchSessionKnowledge(currentTrackerType);
 
         if (cancelled) return;
 
         if (result) {
-          console.log('[SessionKnowledge] Got knowledge with seed:', result.seed, 'trackerType:', result.trackerType);
+          console.log('[SessionKnowledge] Got knowledge, trackerType:', result.trackerType);
           setSessionKnowledge(sessionId, result.knowledge);
-          // Also set the inferred tracker type
+          // Also set the tracker type
           setTrackerType(sessionId, result.trackerType);
         } else {
           console.log('[SessionKnowledge] No knowledge returned');
@@ -225,7 +230,7 @@ export function SessionKnowledge({ sessionId, title, context, knowledge }: Sessi
     return () => {
       cancelled = true;
     };
-  }, [sessionId, title, context, knowledge, setSessionKnowledge, setTrackerType]);
+  }, [sessionId, trackerType, knowledge, setSessionKnowledge, setTrackerType]);
 
   // Loading state (but not if knowledge already arrived)
   if (isLoading && !knowledge) {

@@ -24,11 +24,11 @@ interface Props {
 function TrendIcon({ trend }: { trend: 'improving' | 'stable' | 'declining' | 'unknown' }) {
   switch (trend) {
     case 'improving':
-      return <TrendingUp className="w-3 h-3 text-green-500" />;
+      return <TrendingUp className="w-3 h-3 text-[var(--color-success)]" />;
     case 'declining':
-      return <TrendingDown className="w-3 h-3 text-red-500" />;
+      return <TrendingDown className="w-3 h-3 text-[var(--color-error)]" />;
     case 'stable':
-      return <Minus className="w-3 h-3 text-yellow-500" />;
+      return <Minus className="w-3 h-3 text-[var(--color-lime)]" />;
     default:
       return <Minus className="w-3 h-3 text-[var(--color-muted)]" />;
   }
@@ -37,9 +37,9 @@ function TrendIcon({ trend }: { trend: 'improving' | 'stable' | 'declining' | 'u
 // Confidence badge
 function ConfidenceBadge({ confidence }: { confidence: 'low' | 'medium' | 'high' }) {
   const colors = {
-    low: 'bg-gray-100 text-gray-600',
-    medium: 'bg-yellow-100 text-yellow-700',
-    high: 'bg-green-100 text-green-700',
+    low: 'bg-[var(--color-line)] text-[var(--color-muted)]',
+    medium: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
+    high: 'bg-[var(--color-success)]/20 text-[var(--color-success)]',
   };
 
   return (

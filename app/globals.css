@@ -1,40 +1,42 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand Colors - Warm, calm neutrals + teal accent */
-  --color-bg: #F6F4F2;
-  --color-surface: #FFFFFF;
-  --color-text: #222425;
-  --color-muted: #6D6F71;
-  --color-line: #E6E4E2;
+  /* Dark Mode Base Colors - Softer, premium feel */
+  --color-bg: #1a1a1f;
+  --color-surface: #252529;
+  --color-text: #e8e8ec;
+  --color-muted: #8a8a94;
+  --color-line: #35353d;
 
-  /* Primary Accent - Teal */
-  --color-accent: #0D9488;
-  --color-accent-light: #14B8A6;
-  --color-accent-dark: #0F766E;
+  /* Primary Accent - Coral */
+  --color-accent: #ee6055;
+  --color-accent-light: #f17d74;
+  --color-accent-dark: #d94d42;
 
-  /* Secondary Accent - Copper (for highlights, callouts, insights) */
-  --color-accent-secondary: #C2410C;
-  --color-accent-secondary-light: #EA580C;
-  --color-accent-secondary-dark: #9A3412;
+  /* Secondary Accent - Mint */
+  --color-accent-secondary: #60d394;
+  --color-accent-secondary-light: #aaf683;
+  --color-accent-secondary-dark: #4cb87d;
+
+  /* Color Palette */
+  --color-coral: #ee6055;
+  --color-mint: #60d394;
+  --color-lime: #aaf683;
 
   /* Functional Colors */
-  --color-success: #0D9488;
-  --color-warn: #D97706;
-  --color-error: #DC2626;
-
-  /* Typography */
-  --font-sans: var(--font-inter), system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-serif: var(--font-playfair), Georgia, serif;
+  --color-success: #60d394;
+  --color-info: #60d394;
+  --color-warn: #ee6055;
+  --color-error: #ee6055;
 
   /* Spacing & Radius */
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 18px;
 
-  /* Shadows */
-  --shadow-card: 0 6px 18px rgba(34, 36, 37, 0.06);
-  --shadow-card-hover: 0 8px 24px rgba(34, 36, 37, 0.1);
+  /* Shadows (adjusted for dark mode) */
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.25);
 
   /* Transitions */
   --transition-fast: 120ms ease-out;
@@ -42,39 +44,55 @@
   --transition-slow: 320ms ease-out;
 }
 
-/* Base styles - Mobile first */
+/* Font definitions - must be outside @theme to use Next.js font variables */
+:root {
+  --font-sans: var(--font-libre), Georgia, serif;
+  --font-serif: var(--font-gravitas), Impact, sans-serif;
+}
+
+/* Override Tailwind's font utilities to use our fonts */
+.font-serif {
+  font-family: var(--font-gravitas), Impact, sans-serif !important;
+}
+
+.font-sans {
+  font-family: var(--font-libre), Georgia, serif !important;
+}
+
+/* Base styles - Mobile first, larger text */
 html {
-  font-size: 16px;
+  font-size: 18px;
 }
 
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-sans);
+  font-family: var(--font-libre), Georgia, serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
 }
 
-/* Serif headings for editorial feel */
+/* Gravitas One headings - bold display font */
 h1, h2, h3 {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--font-gravitas), Impact, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
   line-height: 1.15;
+  text-transform: uppercase;
 }
 
 h1 {
-  font-size: 1.75rem; /* 28px */
+  font-size: 2.5rem; /* 45px */
 }
 
 h2 {
-  font-size: 1.25rem; /* 20px */
+  font-size: 1.75rem; /* 31.5px */
   line-height: 1.2;
 }
 
 h3 {
-  font-size: 1.125rem; /* 18px */
+  font-size: 1.5rem; /* 27px */
   line-height: 1.25;
 }
 
@@ -86,14 +104,14 @@ p {
 
 /* Small text / captions */
 .text-caption {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 0.8125rem;
   color: var(--color-muted);
   letter-spacing: 0.02em;
 }
 
 /* Micro text / timestamps */
 .text-micro {
-  font-size: 0.6875rem; /* 11px */
+  font-size: 0.6875rem;
   color: var(--color-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -133,7 +151,7 @@ p {
 
 /* Button base - minimal, ghost style */
 .btn {
-  font-size: 0.9375rem; /* 15px */
+  font-size: 0.9375rem;
   font-weight: 500;
   padding: 0.625rem 1rem;
   border-radius: var(--radius-sm);
@@ -162,6 +180,12 @@ p {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
 
+/* Prevent horizontal overflow globally */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 /* Smooth scroll behavior */
 @media (prefers-reduced-motion: no-preference) {
   html {
@@ -171,20 +195,20 @@ p {
 
 /* Mobile-first responsive padding */
 .container-padding {
-  padding-left: 1.25rem; /* 20px */
+  padding-left: 1.25rem;
   padding-right: 1.25rem;
 }
 
 @media (min-width: 640px) {
   .container-padding {
-    padding-left: 1.75rem; /* 28px */
+    padding-left: 1.75rem;
     padding-right: 1.75rem;
   }
 }
 
 /* Markdown content styles */
 .markdown-content {
-  font-size: 0.9375rem; /* 15px */
+  font-size: 0.9375rem;
   line-height: 1.6;
 }
 
@@ -279,7 +303,7 @@ p {
 
 /* Onboarding prose styles - optimized for readability */
 .prose-onboarding {
-  font-size: 1.0625rem; /* 17px - slightly larger for comfortable reading */
+  font-size: 1.0625rem;
   line-height: 1.75;
   color: var(--color-text);
 }
@@ -339,31 +363,34 @@ p {
 }
 
 .prose-baseline .markdown-content h1 {
-  font-family: var(--font-serif);
+  font-family: var(--font-gravitas), Impact, sans-serif;
   font-size: 1.5rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
   margin-bottom: 1.5rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--color-line);
+  text-transform: uppercase;
 }
 
 .prose-baseline .markdown-content h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font-gravitas), Impact, sans-serif;
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
   margin-top: 2rem;
   margin-bottom: 0.75rem;
+  text-transform: uppercase;
 }
 
 .prose-baseline .markdown-content h3 {
-  font-family: var(--font-serif);
+  font-family: var(--font-gravitas), Impact, sans-serif;
   font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-accent-secondary);
+  font-weight: 400;
+  color: var(--color-accent);
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
+  text-transform: uppercase;
 }
 
 .prose-baseline .markdown-content p {
@@ -398,7 +425,7 @@ p {
 }
 
 .prose-baseline .markdown-content blockquote {
-  border-left: 3px solid var(--color-accent-secondary);
+  border-left: 3px solid var(--color-accent);
   padding-left: 1rem;
   margin: 1.5rem 0;
   color: var(--color-muted);

@@ -1,214 +1,311 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Sparkles, Hand } from 'lucide-react';
+import { Dumbbell, Utensils, CheckSquare, Brain, Moon, Heart, X, Sparkles } from 'lucide-react';
 import { useSessionsStore, selectSessions } from '@/store/sessions.store';
+import type { TrackerType } from '@/lib/sessions/types';
 import { useHydrated } from '@/hooks/useHydrated';
-import { SessionList, EmptyState } from '@/components/sessions';
-import { SessionModal } from '@/components/sessions/SessionModal';
+import { SessionModal, type QuickSessionType } from '@/components/sessions/SessionModal';
 import { BackButton } from '@/components/ui/BackButton';
 
-const COMPLETION_MODE_KEY = 'brainlm:session-completion-mode';
-
-type CompletionMode = 'auto' | 'manual';
+interface AppConfig {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ElementType;
+  color: string;
+  bgGradient: string;
+  trackerType: TrackerType | 'habit';
+  comingSoon?: boolean;
+  onClick?: () => void;
+}
 
 export default function SessionsPage() {
   const hydrated = useHydrated();
   const allSessions = useSessionsStore(selectSessions);
   const sessions = allSessions.filter(s => !s.isCompleted);
+  const createSession = useSessionsStore((s) => s.createSession);
+  const setTrackerType = useSessionsStore((s) => s.setTrackerType);
+  const deleteSession = useSessionsStore((s) => s.deleteSession);
   const router = useRouter();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [completionMode, setCompletionMode] = useState<CompletionMode>('auto');
+  const [quickType, setQuickType] = useState<QuickSessionType | undefined>(undefined);
 
-  // Load preference from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(COMPLETION_MODE_KEY);
-      if (stored === 'auto' || stored === 'manual') {
-        setCompletionMode(stored);
-      }
-    }
-  }, []);
-
-  // Save preference to localStorage when changed
-  const handleModeChange = (mode: CompletionMode) => {
-    setCompletionMode(mode);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(COMPLETION_MODE_KEY, mode);
-    }
+  // Find active sessions for each app type
+  const findActiveSession = (type: TrackerType | 'habit') => {
+    const today = new Date().toDateString();
+    return sessions.find(
+      (s) =>
+        s.trackerType === type &&
+        new Date(s.createdAt).toDateString() === today &&
+        !s.isCompleted
+    );
   };
 
-  const handleCreateNew = () => {
-    setIsModalOpen(true);
+  // Get session stats for display
+  const getSessionStats = (type: TrackerType | 'habit') => {
+    const session = findActiveSession(type);
+    if (!session) return null;
+
+    if (type === 'gym' && session.workoutLog) {
+      const log = session.workoutLog;
+      return {
+        primary: `${log.summary.totalExercises} exercises`,
+        secondary: `${log.summary.totalSets} sets`
+      };
+    }
+
+    if (type === 'diet' && session.dietLog) {
+      const log = session.dietLog;
+      return {
+        primary: `${Math.round(log.summary.progress.consumed.calories)} cal`,
+        secondary: `${Math.round(log.summary.progress.consumed.protein)}g protein`
+      };
+    }
+
+    if (type === 'habit' && session.habitLog) {
+      const log = session.habitLog;
+      return {
+        primary: `${log.summary.completedHabits}/${log.summary.totalHabits} done`,
+        secondary: `${log.summary.completionRate}%`
+      };
+    }
+
+    return { primary: 'In progress', secondary: '' };
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
+    setQuickType(undefined);
   };
 
   const handleSessionCreated = (sessionId: string) => {
-    // Navigate to the new session detail page
     router.push(`/sessions/${sessionId}`);
   };
 
+  // App configurations
+  const apps: AppConfig[] = [
+    {
+      id: 'gym',
+      name: 'Gym',
+      description: 'Track workouts & PRs',
+      icon: Dumbbell,
+      color: '#f87171',
+      bgGradient: 'rgba(248, 113, 113, 0.15)',
+      trackerType: 'gym',
+      onClick: () => {
+        const active = findActiveSession('gym');
+        if (active) {
+          router.push(`/sessions/${active.id}`);
+          return;
+        }
+        const newId = createSession('Gym App', 'Track workouts, PRs, and become your best self');
+        setTrackerType(newId, 'gym' as TrackerType);
+        router.push(`/sessions/${newId}`);
+      }
+    },
+    {
+      id: 'diet',
+      name: 'Diet',
+      description: 'Track meals & macros',
+      icon: Utensils,
+      color: '#34d399',
+      bgGradient: 'rgba(52, 211, 153, 0.15)',
+      trackerType: 'diet',
+      onClick: () => {
+        const active = findActiveSession('diet');
+        if (active) {
+          router.push(`/sessions/${active.id}`);
+          return;
+        }
+        setQuickType('diet');
+        setIsModalOpen(true);
+      }
+    },
+    {
+      id: 'habit',
+      name: 'Habits',
+      description: 'Build daily routines',
+      icon: CheckSquare,
+      color: '#a855f7',
+      bgGradient: 'rgba(168, 85, 247, 0.15)',
+      trackerType: 'habit',
+      onClick: () => {
+        const active = findActiveSession('habit');
+        if (active) {
+          router.push(`/sessions/${active.id}`);
+          return;
+        }
+        const newId = createSession('Habit Tracker', 'Track daily habits and build consistency');
+        setTrackerType(newId, 'habit' as TrackerType);
+        router.push(`/sessions/${newId}`);
+      }
+    },
+    {
+      id: 'sleep',
+      name: 'Sleep',
+      description: 'Track sleep quality',
+      icon: Moon,
+      color: '#6366f1',
+      bgGradient: 'rgba(99, 102, 241, 0.15)',
+      trackerType: 'general',
+      comingSoon: true
+    },
+    {
+      id: 'mood',
+      name: 'Mood',
+      description: 'Track emotions',
+      icon: Heart,
+      color: '#ec4899',
+      bgGradient: 'rgba(236, 72, 153, 0.15)',
+      trackerType: 'general',
+      comingSoon: true
+    },
+    {
+      id: 'focus',
+      name: 'Focus',
+      description: 'Deep work sessions',
+      icon: Brain,
+      color: '#f59e0b',
+      bgGradient: 'rgba(245, 158, 11, 0.15)',
+      trackerType: 'general',
+      comingSoon: true
+    }
+  ];
+
+  const handleDelete = (e: React.MouseEvent, type: TrackerType | 'habit') => {
+    e.stopPropagation();
+    const session = findActiveSession(type);
+    if (session) {
+      deleteSession(session.id);
+    }
+  };
+
   // Loading state
-  const loadingContent = (
-    <div className="flex flex-col items-center justify-center py-16">
-      <div className="w-8 h-8 border-2 border-[var(--color-line)] border-t-[var(--color-accent)] rounded-full animate-spin" />
-      <p className="text-sm text-[var(--color-muted)] mt-4">Loading sessions...</p>
-    </div>
-  );
-
-  // Empty state
-  const emptyContent = <EmptyState onCreateNew={handleCreateNew} />;
-
-  // Completion mode toggle component
-  const completionModeToggle = (
-    <div className="relative p-1 bg-[var(--color-bg)] rounded-full border border-[var(--color-line)]">
-      {/* Sliding background */}
-      <div
-        className={`
-          absolute top-1 bottom-1 w-[calc(50%-4px)]
-          bg-[var(--color-surface)]
-          border border-[var(--color-line)]
-          rounded-full
-          shadow-sm
-          transition-all duration-300 ease-out
-          ${completionMode === 'auto' ? 'left-1' : 'left-[calc(50%+2px)]'}
-        `}
-      />
-
-      {/* Toggle buttons */}
-      <div className="relative flex">
-        <button
-          onClick={() => handleModeChange('auto')}
-          className={`
-            flex-1 flex items-center justify-center gap-2
-            px-4 py-2.5
-            rounded-full
-            text-xs font-medium
-            transition-all duration-300
-            ${completionMode === 'auto'
-              ? 'text-[var(--color-text)]'
-              : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
-            }
-          `}
-        >
-          <Sparkles className={`w-3.5 h-3.5 transition-all duration-300 ${completionMode === 'auto' ? 'text-[var(--color-accent)]' : ''}`} />
-          <span className="whitespace-nowrap">Auto-sync daily</span>
-        </button>
-
-        <button
-          onClick={() => handleModeChange('manual')}
-          className={`
-            flex-1 flex items-center justify-center gap-2
-            px-4 py-2.5
-            rounded-full
-            text-xs font-medium
-            transition-all duration-300
-            ${completionMode === 'manual'
-              ? 'text-[var(--color-text)]'
-              : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
-            }
-          `}
-        >
-          <Hand className={`w-3.5 h-3.5 transition-all duration-300 ${completionMode === 'manual' ? 'text-[var(--color-accent)]' : ''}`} />
-          <span className="whitespace-nowrap">Manual completion</span>
-        </button>
-      </div>
-    </div>
-  );
-
-  // List content
-  const listContent = (
-    <div className="space-y-5">
-      {/* Completion mode toggle */}
-      {completionModeToggle}
-
-      {/* Description */}
-      <p className="text-sm text-[var(--color-muted)] leading-relaxed">
-        🧠 Sessions track long-running, sequential, or linked events in your life. Each session assigns you a <span className="inline-flex items-center gap-1.5 text-[var(--color-text)] font-medium">Personalised Thinker<span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-accent)] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-accent)]"></span></span></span> — an AI that absorbs relevant context from your life and actively thinks about every entry to <span className="text-[var(--color-accent)]">pivot, suggest, and assist</span> in real-time as you log.
-      </p>
-
-      {/* Sessions list */}
-      <SessionList sessions={sessions} />
-    </div>
-  );
-
-  // Determine which content to show
-  let mainContent;
   if (!hydrated) {
-    mainContent = loadingContent;
-  } else if (sessions.length === 0) {
-    mainContent = (
-      <div className="space-y-5">
-        {/* Completion mode toggle */}
-        {completionModeToggle}
-
-        <p className="text-sm text-[var(--color-muted)] leading-relaxed">
-          🧠 Sessions track long-running, sequential, or linked events in your life. Each session assigns you a <span className="inline-flex items-center gap-1.5 text-[var(--color-text)] font-medium">Personalised Thinker<span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-accent)] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-accent)]"></span></span></span> — an AI that absorbs relevant context from your life and actively thinks about every entry to <span className="text-[var(--color-accent)]">pivot, suggest, and assist</span> in real-time as you log.
-        </p>
-        {emptyContent}
+    return (
+      <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
+        <header className="sticky top-0 z-10 h-14 flex items-center justify-between px-5 sm:px-7 bg-[var(--color-surface)] border-b border-[var(--color-line)]">
+          <div className="font-serif font-semibold text-lg text-[var(--color-text)]">Apps</div>
+        </header>
+        <main className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[var(--color-line)] border-t-[var(--color-accent)] rounded-full animate-spin" />
+        </main>
       </div>
     );
-  } else {
-    mainContent = listContent;
   }
 
   return (
     <>
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
         {/* Header */}
-        <header
-          className="
-            sticky top-0 z-10
-            h-14
-            flex items-center justify-between
-            px-5 sm:px-7
-            bg-[var(--color-surface)]
-            border-b border-[var(--color-line)]
-          "
-        >
-          <div className="font-serif font-semibold text-lg text-[var(--color-text)]">
-            Sessions
-          </div>
-          <div className="w-2 h-2 rounded-full bg-[var(--color-accent)] opacity-60" />
+        <header className="sticky top-0 z-10 h-12 flex items-center justify-between px-3 sm:px-4 bg-[var(--color-surface)] border-b border-[var(--color-line)]">
+          <div className="font-serif font-semibold text-base text-[var(--color-text)]">Apps</div>
+          <Sparkles className="w-4 h-4 text-[var(--color-accent)]" />
         </header>
 
-        {/* Main content */}
-        <main className="flex-1 py-6 sm:py-8 pb-24 px-5 sm:px-7">
-          <div className="max-w-2xl mx-auto">{mainContent}</div>
+        {/* App Grid */}
+        <main className="flex-1 px-2 pt-2 sm:px-3 sm:pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-2.5">
+            {apps.map((app) => {
+              const activeSession = findActiveSession(app.trackerType);
+              const stats = getSessionStats(app.trackerType);
+              const Icon = app.icon;
+
+              return (
+                <div
+                  key={app.id}
+                  onClick={app.comingSoon ? undefined : app.onClick}
+                  className={`
+                    relative flex flex-col p-3 sm:p-4
+                    bg-[var(--color-surface)] rounded-xl
+                    border border-[var(--color-line)]
+                    transition-all duration-200
+                    ${app.comingSoon
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:border-[var(--color-muted)] hover:shadow-lg hover:shadow-black/5 cursor-pointer active:scale-[0.98]'
+                    }
+                    group
+                  `}
+                >
+                  {/* Active indicator & delete button */}
+                  {activeSession && !app.comingSoon && (
+                    <button
+                      onClick={(e) => handleDelete(e, app.trackerType)}
+                      className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full bg-[var(--color-bg)] hover:bg-[var(--color-error)]/20 transition-colors opacity-0 group-hover:opacity-100"
+                      title="End session"
+                    >
+                      <X className="w-3.5 h-3.5 text-[var(--color-error)]" />
+                    </button>
+                  )}
+
+                  {/* Icon */}
+                  <div
+                    className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl mb-2 transition-transform group-hover:scale-105"
+                    style={{ backgroundColor: app.bgGradient }}
+                  >
+                    <Icon
+                      className="w-5 h-5 sm:w-6 sm:h-6"
+                      style={{ color: app.color }}
+                    />
+                  </div>
+
+                  {/* Title & Description */}
+                  <h3 className="font-semibold text-[var(--color-text)] text-sm sm:text-base leading-tight">
+                    {app.name}
+                  </h3>
+                  <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-snug">
+                    {app.description}
+                  </p>
+
+                  {/* Status */}
+                  <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
+                    {app.comingSoon ? (
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                        Coming Soon
+                      </span>
+                    ) : activeSession ? (
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: app.color }} />
+                          <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>
+                            Active
+                          </span>
+                        </div>
+                        {stats && (
+                          <span className="text-xs text-[var(--color-muted)]">
+                            {stats.primary}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                        Start
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Quick tip */}
+          <div className="mt-4 p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)]">
+            <p className="text-xs text-[var(--color-muted)] text-center">
+              Tap an app to start tracking. Your AI coach will guide you.
+            </p>
+          </div>
         </main>
 
-        {/* Fixed back button - bottom left (uses browser history for instant nav) */}
+        {/* Fixed back button */}
         <BackButton />
-
-        {/* Fixed New button - bottom right */}
-        <button
-          onClick={handleCreateNew}
-          className="
-            fixed bottom-6 right-6
-            z-20
-            w-12 h-12
-            flex items-center justify-center
-            bg-[var(--color-accent)]
-            border border-[var(--color-accent)]
-            rounded-full
-            shadow-lg
-            transition-all duration-200
-            hover:shadow-xl hover:brightness-110
-            active:scale-95
-          "
-          aria-label="Create new session"
-        >
-          <Plus className="w-5 h-5 text-white" />
-        </button>
       </div>
 
       <SessionModal
         isOpen={isModalOpen}
+        quickType={quickType}
         onClose={handleCloseModal}
         onCreated={handleSessionCreated}
       />

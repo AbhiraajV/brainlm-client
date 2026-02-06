@@ -1,70 +1,76 @@
 /**
  * Design tokens matching the Motif. design language.
- * Warm, calm neutrals + teal/copper accent. Premium, editorial feel.
+ * Dark mode with pastel accents. Premium, editorial feel.
  * Mobile-first, accessible.
  */
 export const designTokens = {
   colors: {
-    // Core palette
-    bg: '#F6F4F2',           // Warm off-white background
-    surface: '#FFFFFF',       // Pure white for cards
-    text: '#222425',          // Soft charcoal for body
-    muted: '#6D6F71',         // Secondary text, captions
-    line: '#E6E4E2',          // Dividers, subtle borders
+    // Core palette - Dark mode, softer feel
+    bg: '#1a1a1f',
+    surface: '#252529',
+    text: '#e8e8ec',
+    muted: '#8a8a94',
+    line: '#35353d',
 
-    // Primary Accent - Teal (buttons, links, focus rings)
-    accent: '#0D9488',
-    accentLight: '#14B8A6',
-    accentDark: '#0F766E',
+    // Primary Accent - Coral
+    accent: '#ee6055',
+    accentLight: '#f17d74',
+    accentDark: '#d94d42',
 
-    // Secondary Accent - Copper (highlights, callouts, insights)
-    accentSecondary: '#C2410C',
-    accentSecondaryLight: '#EA580C',
-    accentSecondaryDark: '#9A3412',
+    // Secondary Accent - Mint
+    accentSecondary: '#60d394',
+    accentSecondaryLight: '#aaf683',
+    accentSecondaryDark: '#4cb87d',
+
+    // Color Palette
+    coral: '#ee6055',
+    mint: '#60d394',
+    lime: '#aaf683',
 
     // Functional
-    success: '#0D9488',
-    warn: '#D97706',
-    error: '#DC2626',
+    success: '#60d394',
+    info: '#60d394',
+    warn: '#ee6055',
+    error: '#ee6055',
   },
 
   fonts: {
-    sans: "var(--font-inter), system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-    serif: "var(--font-playfair), Georgia, serif",
+    sans: "var(--font-sans)",
+    serif: "var(--font-serif)",
   },
 
-  // Mobile-first type scale (base 16px)
+  // Mobile-first type scale (base 18px)
   typography: {
     h1: {
-      size: '1.75rem',      // 28px
-      weight: 600,
+      size: '2.5rem',
+      weight: 400,
       lineHeight: 1.15,
-      letterSpacing: '-0.01em',
+      letterSpacing: '0.02em',
     },
     h2: {
-      size: '1.25rem',      // 20px
-      weight: 600,
+      size: '1.75rem',
+      weight: 400,
       lineHeight: 1.2,
-      letterSpacing: '-0.01em',
+      letterSpacing: '0.02em',
     },
     h3: {
-      size: '1.125rem',     // 18px
-      weight: 600,
+      size: '1.5rem',
+      weight: 400,
       lineHeight: 1.25,
     },
     body: {
-      size: '1rem',         // 16px
+      size: '1rem',
       weight: 400,
       lineHeight: 1.6,
     },
     caption: {
-      size: '0.8125rem',    // 13px
+      size: '0.8125rem',
       weight: 400,
       lineHeight: 1.4,
       letterSpacing: '0.02em',
     },
     micro: {
-      size: '0.6875rem',    // 11px
+      size: '0.6875rem',
       weight: 400,
       lineHeight: 1.3,
       letterSpacing: '0.06em',
@@ -72,13 +78,13 @@ export const designTokens = {
   },
 
   spacing: {
-    xs: '0.25rem',    // 4px
-    sm: '0.5rem',     // 8px
-    md: '1rem',       // 16px
-    lg: '1.5rem',     // 24px
-    xl: '2rem',       // 32px
-    screenPadding: '1.25rem',  // 20px mobile
-    screenPaddingSm: '1.75rem', // 28px tablet+
+    xs: '0.25rem',
+    sm: '0.5rem',
+    md: '1rem',
+    lg: '1.5rem',
+    xl: '2rem',
+    screenPadding: '1.25rem',
+    screenPaddingSm: '1.75rem',
   },
 
   radius: {
@@ -88,8 +94,8 @@ export const designTokens = {
   },
 
   shadows: {
-    card: '0 6px 18px rgba(34, 36, 37, 0.06)',
-    cardHover: '0 8px 24px rgba(34, 36, 37, 0.1)',
+    card: '0 4px 12px rgba(0, 0, 0, 0.2)',
+    cardHover: '0 6px 20px rgba(0, 0, 0, 0.25)',
   },
 
   transitions: {

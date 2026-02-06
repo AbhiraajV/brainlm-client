@@ -455,6 +455,193 @@ export async function generateDietSuggestion(
 }
 
 // ============================================================================
+// DETERMINISTIC ROTATION DETECTION
+// ============================================================================
+
+/**
+ * Map of exercise keywords → canonical muscle group.
+ * Broader than the old keyword check — covers exercise names that don't
+ * contain the muscle-group word (e.g. "Bench Press" → CHEST).
+ */
+const EXERCISE_MUSCLE_MAP: Record<string, string[]> = {
+  CHEST: [
+    'chest', 'bench', 'push-up', 'pushup', 'push up',
+    'incline db', 'incline dumbbell', 'decline', 'flye', 'fly',
+    'cable cross', 'pec', 'dip',
+  ],
+  BACK: [
+    'back', 'pull-up', 'pullup', 'pull up', 'pulldown', 'lat pull',
+    'deadlift', 'row', 'barbell row', 'dumbbell row', 'cable row',
+    'face pull', 'chin-up', 'chinup', 'chin up', 't-bar',
+  ],
+  LEGS: [
+    'leg', 'squat', 'lower', 'lunge', 'leg press', 'leg curl',
+    'leg extension', 'calf', 'rdl', 'romanian', 'hip thrust',
+    'hamstring', 'quad', 'glute',
+  ],
+  SHOULDERS: [
+    'shoulder', 'ohp', 'overhead press', 'military press',
+    'lateral raise', 'front raise', 'rear delt', 'shrug',
+  ],
+  ARMS: [
+    'arm', 'bicep', 'tricep', 'curl', 'hammer curl',
+    'skull crusher', 'tricep pushdown', 'preacher',
+  ],
+  PUSH: ['push day', 'push session'],
+  PULL: ['pull day', 'pull session'],
+};
+
+/** Normalised group names that we collapse PPL variants into */
+const GROUP_ALIASES: Record<string, string> = {
+  'CHEST': 'CHEST',
+  'PUSH': 'CHEST',   // Push ≈ Chest+Shoulders+Triceps
+  'BACK': 'BACK',
+  'PULL': 'BACK',    // Pull ≈ Back+Biceps
+  'LEGS': 'LEGS',
+  'SHOULDERS': 'SHOULDERS',
+  'ARMS': 'ARMS',
+};
+
+/**
+ * Detect the muscle group trained in a review summary by scanning for
+ * exercise-name keywords (not just muscle-group words).
+ */
+function detectMuscleGroupFromSummary(summary: string): string {
+  const lower = summary.toLowerCase();
+
+  // Score each group by how many keywords match
+  let bestGroup = 'UNKNOWN';
+  let bestScore = 0;
+
+  for (const [group, keywords] of Object.entries(EXERCISE_MUSCLE_MAP)) {
+    const score = keywords.filter(kw => lower.includes(kw)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestGroup = group;
+    }
+  }
+
+  // Normalise aliases (PUSH→CHEST, PULL→BACK)
+  return GROUP_ALIASES[bestGroup] ?? bestGroup;
+}
+
+interface RotationResult {
+  /** The detected split as an ordered list of muscle groups, e.g. ['LEGS','BACK','CHEST'] */
+  detectedSplit: string[];
+  /** The most recent workout's muscle group */
+  mostRecentMuscle: string;
+  /** The date of the most recent workout */
+  mostRecentDate: string;
+  /** The code-computed next muscle group */
+  nextMuscle: string;
+  /** Human-readable explanation of why this muscle was chosen */
+  rotationReason: string;
+}
+
+/**
+ * Deterministically compute the next muscle group from daily reviews.
+ *
+ * 1. Parse each daily review → muscle group via the broad exercise→muscle map
+ * 2. Deduce the repeating split (e.g. LEGS→BACK→CHEST)
+ * 3. Return the next muscle via modular wrap-around
+ */
+function detectRotationAndNextMuscle(
+  reviews: { id: string; type: string; summary: string; periodKey: string }[]
+): RotationResult | null {
+  // Filter to daily reviews and sort newest-first
+  const dailyReviews = reviews
+    .filter(r => r.type === 'daily' || r.periodKey.match(/^\d{4}-\d{2}-\d{2}$/))
+    .sort((a, b) => b.periodKey.localeCompare(a.periodKey));
+
+  if (dailyReviews.length === 0) return null;
+
+  // Build ordered history: [ { date, muscle } ] newest-first
+  const history: { date: string; muscle: string }[] = [];
+  for (const review of dailyReviews) {
+    const muscle = detectMuscleGroupFromSummary(review.summary);
+    if (muscle !== 'UNKNOWN') {
+      history.push({ date: review.periodKey, muscle });
+    }
+  }
+
+  if (history.length === 0) return null;
+
+  const mostRecentMuscle = history[0].muscle;
+  const mostRecentDate = history[0].date;
+
+  // --- Detect the repeating split pattern ---
+  // Walk backwards (oldest→newest) through unique consecutive groups
+  // e.g. [CHEST, BACK, LEGS, CHEST, BACK, LEGS] → split = [CHEST, BACK, LEGS]
+  const reversed = [...history].reverse(); // oldest-first
+  const uniqueSequence: string[] = [];
+  for (const entry of reversed) {
+    // Only add if different from last (collapse consecutive same-muscle days)
+    if (uniqueSequence.length === 0 || uniqueSequence[uniqueSequence.length - 1] !== entry.muscle) {
+      uniqueSequence.push(entry.muscle);
+    }
+  }
+
+  // Try to find the shortest repeating cycle (length 2..uniqueSequence.length)
+  let detectedSplit: string[] = uniqueSequence; // fallback: full sequence
+  for (let cycleLen = 2; cycleLen <= Math.min(6, uniqueSequence.length); cycleLen++) {
+    const candidate = uniqueSequence.slice(0, cycleLen);
+    let matches = true;
+    for (let i = cycleLen; i < uniqueSequence.length; i++) {
+      if (uniqueSequence[i] !== candidate[i % cycleLen]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches && uniqueSequence.length >= cycleLen * 2) {
+      // We found a repeating cycle with at least 2 full repetitions
+      detectedSplit = candidate;
+      break;
+    }
+  }
+
+  // If we couldn't find a strict repeat but have ≤6 unique groups, use as-is
+  if (detectedSplit.length > 6) {
+    detectedSplit = uniqueSequence.slice(0, Math.min(uniqueSequence.length, 6));
+  }
+
+  // --- Compute next muscle via modular arithmetic ---
+  const lastIndex = detectedSplit.indexOf(mostRecentMuscle);
+  let nextMuscle: string;
+  if (lastIndex === -1) {
+    // Most recent muscle not in detected split (unusual) → default to first in split
+    nextMuscle = detectedSplit[0];
+  } else {
+    nextMuscle = detectedSplit[(lastIndex + 1) % detectedSplit.length];
+  }
+
+  // Build a readable explanation
+  const historyStr = history
+    .slice(0, 5)
+    .reverse()
+    .map(h => `${h.date} ${h.muscle}`)
+    .join(', ');
+
+  const splitStr = detectedSplit.join(' → ');
+  const isWrap = lastIndex === detectedSplit.length - 1;
+  const wrapNote = isWrap
+    ? ` Most recent was ${mostRecentMuscle} (END of cycle) → wrap to start = ${nextMuscle}.`
+    : ` Most recent was ${mostRecentMuscle} → next in sequence = ${nextMuscle}.`;
+
+  const rotationReason =
+    `Last workouts: ${historyStr}. ` +
+    `Detected split: ${splitStr} (${detectedSplit.length}-day rotation).` +
+    wrapNote;
+
+  return {
+    detectedSplit,
+    mostRecentMuscle,
+    mostRecentDate,
+    nextMuscle,
+    rotationReason,
+  };
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -489,40 +676,47 @@ function formatKnowledgeForWorkout(
     sections.push('');
   }
 
-  // Extract muscle group from yesterday's review for validation
-  let mostRecentMuscle = 'unknown';
-  if (knowledge.yesterdaysReview) {
-    const yesterdayLower = knowledge.yesterdaysReview.summary.toLowerCase();
-    const muscleGroupsCheck = ['chest', 'back', 'legs', 'shoulders', 'arms', 'push', 'pull', 'upper', 'lower'];
-    mostRecentMuscle = muscleGroupsCheck.find(m => yesterdayLower.includes(m)) || 'unknown';
+  // ── Deterministic rotation: compute next muscle from reviews ──
+  const rotation = detectRotationAndNextMuscle(knowledge.reviews);
+  const computedNextMuscle = rotation?.nextMuscle ?? null;
+
+  // Inject authoritative rotation section so the LLM has correct context
+  if (rotation) {
+    sections.push(`=== ROTATION (COMPUTED — AUTHORITATIVE) ===`);
+    sections.push(`${rotation.rotationReason}`);
+    sections.push(`TODAY'S MUSCLE GROUP: ${rotation.nextMuscle}`);
+    sections.push(`THIS IS COMPUTED BY CODE AND IS AUTHORITATIVE. Do NOT override this.`);
+    sections.push('');
   }
 
-  // If analysis exists with todaysPlan, inject it as authoritative context at the TOP
-  // BUT validate it against the most recent workout first
+  // If analysis exists with todaysPlan, validate it against the code-computed rotation
   if (analysis?.todaysPlan) {
-    // Try to extract muscle group from summary (e.g., "chest workout" -> "chest")
-    const summaryLower = analysis.todaysPlan.summary.toLowerCase();
-    const muscleGroups = ['chest', 'back', 'legs', 'shoulders', 'arms', 'push', 'pull', 'upper', 'lower'];
-    const detectedMuscle = muscleGroups.find(m => summaryLower.includes(m)) || 'unknown';
+    // Detect muscle from analysis summary using the same broad mapping
+    const analysisMuscle = detectMuscleGroupFromSummary(analysis.todaysPlan.summary);
 
-    // Check if the pre-determined muscle is the same as most recent - if so, flag it as invalid
-    const isInvalid = detectedMuscle !== 'unknown' && detectedMuscle === mostRecentMuscle;
+    // Determine if the analysis agrees with the code-computed rotation
+    const analysisMatchesRotation =
+      !computedNextMuscle ||
+      analysisMuscle === 'UNKNOWN' ||
+      analysisMuscle === computedNextMuscle;
 
-    if (isInvalid) {
-      // Analysis suggested the same muscle as most recent workout - INVALID
-      sections.push(`=== WARNING: ANALYSIS SUGGESTED INVALID MUSCLE GROUP ===`);
-      sections.push(`Analysis suggested: ${detectedMuscle.toUpperCase()}`);
-      sections.push(`Most recent workout was: ${mostRecentMuscle.toUpperCase()}`);
-      sections.push(`THESE ARE THE SAME - DO NOT USE THE ANALYSIS SUGGESTION`);
-      sections.push(`YOU MUST: Use STEP 1 and STEP 2 below to determine the correct muscle group based on rotation.`);
-      sections.push(`NEVER repeat the same muscle group on consecutive days.`);
+    if (!analysisMatchesRotation) {
+      // Analysis conflicts with code-computed rotation → OVERRIDE
+      sections.push(`=== WARNING: ANALYSIS OVERRIDDEN BY ROTATION ===`);
+      sections.push(`Analysis suggested: ${analysisMuscle}`);
+      sections.push(`Code-computed rotation says: ${computedNextMuscle}`);
+      sections.push(`USING CODE-COMPUTED ROTATION (${computedNextMuscle}).`);
+      sections.push(`The analysis was wrong — generate exercises for ${computedNextMuscle} ONLY.`);
       sections.push('');
     } else {
-      // Analysis suggested a different muscle - VALID, use it
-      sections.push(`=== TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS) ===`);
-      sections.push(`MUSCLE GROUP: ${detectedMuscle.toUpperCase()}`);
+      // Analysis agrees (or we can't tell) — use it
+      const displayMuscle = computedNextMuscle ?? analysisMuscle;
+      sections.push(`=== TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS, CONFIRMED BY ROTATION) ===`);
+      sections.push(`MUSCLE GROUP: ${displayMuscle}`);
       sections.push(`SUMMARY: ${analysis.todaysPlan.summary}`);
-      sections.push(`MOST RECENT WORKOUT: ${mostRecentMuscle.toUpperCase()} (different - this suggestion is valid)`);
+      if (rotation) {
+        sections.push(`ROTATION CONFIRMATION: ${rotation.rotationReason}`);
+      }
       sections.push('');
 
       // Check if there are any metrics (weights) provided in the analysis
@@ -544,16 +738,23 @@ function formatKnowledgeForWorkout(
       }
 
       sections.push(`!!! CRITICAL: The muscle group above is ALREADY DETERMINED.`);
-      sections.push(`!!! DO NOT re-analyze the split pattern. Generate exercises for ${detectedMuscle.toUpperCase()} ONLY.`);
+      sections.push(`!!! DO NOT re-analyze the split pattern. Generate exercises for ${displayMuscle} ONLY.`);
 
       // If no metrics were provided, the analysis didn't have historical data for this muscle group
       if (!hasMetrics) {
-        sections.push(`!!! WARNING: No historical weight data found for ${detectedMuscle} exercises.`);
-        sections.push(`!!! If you cannot find ${detectedMuscle} exercises in HISTORICAL EVENTS, use weight: "unknown" and notes: "No previous data - start light".`);
+        sections.push(`!!! WARNING: No historical weight data found for ${displayMuscle} exercises.`);
+        sections.push(`!!! If you cannot find ${displayMuscle} exercises in HISTORICAL EVENTS, use weight: "unknown" and notes: "No previous data - start light".`);
         sections.push(`!!! DO NOT invent weights or dates. Only use data that exists.`);
       }
       sections.push('');
     }
+  } else if (computedNextMuscle) {
+    // No analysis but we have a rotation → tell the LLM what to do
+    sections.push(`=== TODAY'S WORKOUT (COMPUTED FROM ROTATION) ===`);
+    sections.push(`MUSCLE GROUP: ${computedNextMuscle}`);
+    sections.push(`${rotation!.rotationReason}`);
+    sections.push(`Generate exercises for ${computedNextMuscle} ONLY.`);
+    sections.push('');
   }
 
   sections.push(`=== SESSION INFO ===`);
