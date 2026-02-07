@@ -108,9 +108,9 @@ export function SessionInfoCard({
   const isLoading = isLoadingKnowledge || isLoadingAnalysis;
 
   const coachLabel = analysis?.sessionType
-    ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit' }[analysis.sessionType]
+    ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit', sleep: 'sleep' }[analysis.sessionType]
     : trackerType
-      ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit' }[trackerType]
+      ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit', sleep: 'sleep' }[trackerType]
       : null;
 
   return (

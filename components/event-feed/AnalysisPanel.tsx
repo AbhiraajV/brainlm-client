@@ -223,44 +223,6 @@ export function AnalysisPanel({ eventId, enablePolling = true }: { eventId: stri
         )}
       </section>
 
-      {/* Insights Section */}
-      <section>
-        <SectionHeader
-          title="Insights"
-          subtext={SECTION_INFO.insights.subtext}
-          tooltip={SECTION_INFO.insights.tooltip}
-        />
-        {insights.length > 0 ? (
-          <ul className="space-y-3">
-            {insights.map(insight => (
-              <li key={insight.id}>
-                <TappableCard onClick={() => handleOpenInsight(insight)}>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    {/* Copper accent indicator for insights */}
-                    <div className="flex items-start gap-2">
-                      <div className="w-1 h-4 mt-0.5 rounded-full bg-[var(--color-accent-secondary)] flex-shrink-0" />
-                      <p className="font-medium text-[var(--color-text)]">
-                        {insight.statement}
-                      </p>
-                    </div>
-                    <ConfidenceBadge level={insight.confidence} />
-                  </div>
-                  <div className="markdown-content truncated ml-3">
-                    <MarkdownRenderer content={insight.explanation} truncate />
-                  </div>
-                </TappableCard>
-              </li>
-            ))}
-          </ul>
-        ) : isPolling ? (
-          <ThinkingIndicator message={thinkingMessages[1]} isPolling={isPolling} />
-        ) : (
-          <p className="text-sm text-[var(--color-muted)] italic">
-            No insights yet
-          </p>
-        )}
-      </section>
-
       {/* Patterns Section */}
       <section>
         <SectionHeader
@@ -336,6 +298,44 @@ export function AnalysisPanel({ eventId, enablePolling = true }: { eventId: stri
           </p>
         ) : (
           <ThinkingIndicator message={thinkingMessages[2]} isPolling={isPolling} />
+        )}
+      </section>
+
+      {/* Insights Section */}
+      <section>
+        <SectionHeader
+          title="Insights"
+          subtext={SECTION_INFO.insights.subtext}
+          tooltip={SECTION_INFO.insights.tooltip}
+        />
+        {insights.length > 0 ? (
+          <ul className="space-y-3">
+            {insights.map(insight => (
+              <li key={insight.id}>
+                <TappableCard onClick={() => handleOpenInsight(insight)}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    {/* Copper accent indicator for insights */}
+                    <div className="flex items-start gap-2">
+                      <div className="w-1 h-4 mt-0.5 rounded-full bg-[var(--color-accent-secondary)] flex-shrink-0" />
+                      <p className="font-medium text-[var(--color-text)]">
+                        {insight.statement}
+                      </p>
+                    </div>
+                    <ConfidenceBadge level={insight.confidence} />
+                  </div>
+                  <div className="markdown-content truncated ml-3">
+                    <MarkdownRenderer content={insight.explanation} truncate />
+                  </div>
+                </TappableCard>
+              </li>
+            ))}
+          </ul>
+        ) : isPolling ? (
+          <ThinkingIndicator message={thinkingMessages[1]} isPolling={isPolling} />
+        ) : (
+          <p className="text-sm text-[var(--color-muted)] italic">
+            No insights yet
+          </p>
         )}
       </section>
 

@@ -352,4 +352,5 @@ enum TrackedType {
   ADDICTION
   GENERAL
   HABIT
+  SLEEP
 }

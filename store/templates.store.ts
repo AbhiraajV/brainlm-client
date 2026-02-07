@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { WorkoutTemplate, TemplateExercise, MuscleGroup } from '@/lib/sessions/types';
+import type { WorkoutPlan, PlanDay, TemplateExercise, MuscleGroup } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:workout-templates';
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
-// Helper to generate UUIDs
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -17,37 +16,36 @@ const generateId = (): string => {
   });
 };
 
-interface TemplatesState {
-  templates: Record<string, WorkoutTemplate>;
-  templateIds: string[];
+interface PlansState {
+  plans: Record<string, WorkoutPlan>;
+  planIds: string[];
 }
 
-interface TemplatesActions {
-  createTemplate: (template: Omit<WorkoutTemplate, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>) => string;
-  updateTemplate: (id: string, updates: Partial<Omit<WorkoutTemplate, 'id' | 'createdAt'>>) => void;
-  deleteTemplate: (id: string) => void;
-  addExercise: (templateId: string, exercise: Omit<TemplateExercise, 'id' | 'orderIndex'>) => void;
-  updateExercise: (templateId: string, exerciseId: string, updates: Partial<TemplateExercise>) => void;
-  removeExercise: (templateId: string, exerciseId: string) => void;
-  reorderExercises: (templateId: string, exerciseIds: string[]) => void;
-  incrementUsage: (templateId: string) => void;
+interface PlansActions {
+  createPlan: (plan: Omit<WorkoutPlan, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>) => string;
+  updatePlan: (planId: string, updates: Partial<Omit<WorkoutPlan, 'id' | 'createdAt'>>) => void;
+  deletePlan: (planId: string) => void;
+  updatePlanDay: (planId: string, dayId: string, updates: Partial<PlanDay>) => void;
+  setPlanDayExercises: (planId: string, dayId: string, exercises: TemplateExercise[]) => void;
+  addPlanDayExercise: (planId: string, dayId: string, exercise: Omit<TemplateExercise, 'id' | 'orderIndex'>) => void;
+  updatePlanDayExercise: (planId: string, dayId: string, exerciseId: string, updates: Partial<TemplateExercise>) => void;
+  removePlanDayExercise: (planId: string, dayId: string, exerciseId: string) => void;
+  incrementPlanUsage: (planId: string) => void;
 }
 
-export type TemplatesStore = TemplatesState & TemplatesActions;
+export type TemplatesStore = PlansState & PlansActions;
 
-const initialState: TemplatesState = {
-  templates: {},
-  templateIds: [],
+const initialState: PlansState = {
+  plans: {},
+  planIds: [],
 };
 
-// Safe localStorage wrapper
 const safeStorage = {
   getItem: (name: string): string | null => {
     try {
       if (typeof window === 'undefined') return null;
       return localStorage.getItem(name);
     } catch {
-      console.warn('Failed to read from localStorage');
       return null;
     }
   },
@@ -55,220 +53,178 @@ const safeStorage = {
     try {
       if (typeof window === 'undefined') return;
       localStorage.setItem(name, value);
-    } catch {
-      console.warn('Failed to write to localStorage');
-    }
+    } catch {}
   },
   removeItem: (name: string): void => {
     try {
       if (typeof window === 'undefined') return;
       localStorage.removeItem(name);
-    } catch {
-      console.warn('Failed to remove from localStorage');
-    }
+    } catch {}
   },
 };
 
-// Validate template object
-const isValidTemplate = (template: unknown): template is WorkoutTemplate => {
-  if (!template || typeof template !== 'object') return false;
-  const t = template as Record<string, unknown>;
+const isValidPlan = (plan: unknown): plan is WorkoutPlan => {
+  if (!plan || typeof plan !== 'object') return false;
+  const p = plan as Record<string, unknown>;
   return (
-    typeof t.id === 'string' &&
-    typeof t.name === 'string' &&
-    Array.isArray(t.exercises) &&
-    typeof t.createdAt === 'string'
+    typeof p.id === 'string' &&
+    typeof p.name === 'string' &&
+    Array.isArray(p.days) &&
+    typeof p.createdAt === 'string' &&
+    p.preferences !== undefined
   );
 };
 
-// Compute muscle groups from exercises
-const computeMuscleGroups = (exercises: TemplateExercise[]): MuscleGroup[] => {
-  const groups = new Set<MuscleGroup>();
-  exercises.forEach(e => {
-    groups.add(e.muscleGroup);
-    e.secondaryMuscles?.forEach(m => groups.add(m));
-  });
-  return Array.from(groups);
-};
+// Helper: update a day within a plan
+function updateDayInPlan(plan: WorkoutPlan, dayId: string, updater: (day: PlanDay) => PlanDay): WorkoutPlan {
+  return {
+    ...plan,
+    days: plan.days.map((d) => (d.id === dayId ? updater(d) : d)),
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 export const useTemplatesStore = create<TemplatesStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       ...initialState,
 
-      createTemplate: (template): string => {
+      createPlan: (plan): string => {
         const now = new Date().toISOString();
         const id = generateId();
 
-        const newTemplate: WorkoutTemplate = {
-          ...template,
+        const newPlan: WorkoutPlan = {
+          ...plan,
           id,
           createdAt: now,
           updatedAt: now,
           usageCount: 0,
-          muscleGroups: computeMuscleGroups(template.exercises),
         };
 
         set((state) => ({
-          templates: { ...state.templates, [id]: newTemplate },
-          templateIds: [id, ...state.templateIds],
+          plans: { ...state.plans, [id]: newPlan },
+          planIds: [id, ...state.planIds],
         }));
 
         return id;
       },
 
-      updateTemplate: (id, updates): void => {
+      updatePlan: (planId, updates): void => {
         const now = new Date().toISOString();
-
         set((state) => {
-          const existing = state.templates[id];
+          const existing = state.plans[planId];
           if (!existing) return state;
-
-          const updated: WorkoutTemplate = {
-            ...existing,
-            ...updates,
-            updatedAt: now,
-            muscleGroups: updates.exercises
-              ? computeMuscleGroups(updates.exercises)
-              : existing.muscleGroups,
-          };
-
           return {
-            templates: { ...state.templates, [id]: updated },
-          };
-        });
-      },
-
-      deleteTemplate: (id): void => {
-        set((state) => {
-          const { [id]: _, ...rest } = state.templates;
-          return {
-            templates: rest,
-            templateIds: state.templateIds.filter((tid) => tid !== id),
-          };
-        });
-      },
-
-      addExercise: (templateId, exercise): void => {
-        const now = new Date().toISOString();
-
-        set((state) => {
-          const template = state.templates[templateId];
-          if (!template) return state;
-
-          const newExercise: TemplateExercise = {
-            ...exercise,
-            id: generateId(),
-            orderIndex: template.exercises.length,
-          };
-
-          const updatedExercises = [...template.exercises, newExercise];
-
-          return {
-            templates: {
-              ...state.templates,
-              [templateId]: {
-                ...template,
-                exercises: updatedExercises,
-                muscleGroups: computeMuscleGroups(updatedExercises),
-                updatedAt: now,
-              },
+            plans: {
+              ...state.plans,
+              [planId]: { ...existing, ...updates, updatedAt: now },
             },
           };
         });
       },
 
-      updateExercise: (templateId, exerciseId, updates): void => {
-        const now = new Date().toISOString();
-
+      deletePlan: (planId): void => {
         set((state) => {
-          const template = state.templates[templateId];
-          if (!template) return state;
-
-          const updatedExercises = template.exercises.map((e) =>
-            e.id === exerciseId ? { ...e, ...updates } : e
-          );
-
+          const { [planId]: _, ...rest } = state.plans;
           return {
-            templates: {
-              ...state.templates,
-              [templateId]: {
-                ...template,
-                exercises: updatedExercises,
-                muscleGroups: computeMuscleGroups(updatedExercises),
-                updatedAt: now,
-              },
+            plans: rest,
+            planIds: state.planIds.filter((id) => id !== planId),
+          };
+        });
+      },
+
+      updatePlanDay: (planId, dayId, updates): void => {
+        set((state) => {
+          const plan = state.plans[planId];
+          if (!plan) return state;
+          return {
+            plans: {
+              ...state.plans,
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({ ...day, ...updates })),
             },
           };
         });
       },
 
-      removeExercise: (templateId, exerciseId): void => {
-        const now = new Date().toISOString();
-
+      setPlanDayExercises: (planId, dayId, exercises): void => {
         set((state) => {
-          const template = state.templates[templateId];
-          if (!template) return state;
-
-          const updatedExercises = template.exercises
-            .filter((e) => e.id !== exerciseId)
-            .map((e, idx) => ({ ...e, orderIndex: idx }));
-
+          const plan = state.plans[planId];
+          if (!plan) return state;
           return {
-            templates: {
-              ...state.templates,
-              [templateId]: {
-                ...template,
-                exercises: updatedExercises,
-                muscleGroups: computeMuscleGroups(updatedExercises),
-                updatedAt: now,
-              },
+            plans: {
+              ...state.plans,
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({ ...day, exercises })),
             },
           };
         });
       },
 
-      reorderExercises: (templateId, exerciseIds): void => {
-        const now = new Date().toISOString();
-
+      addPlanDayExercise: (planId, dayId, exercise): void => {
         set((state) => {
-          const template = state.templates[templateId];
-          if (!template) return state;
-
-          const exerciseMap = new Map(template.exercises.map((e) => [e.id, e]));
-          const reorderedExercises = exerciseIds
-            .map((id, idx) => {
-              const exercise = exerciseMap.get(id);
-              return exercise ? { ...exercise, orderIndex: idx } : null;
-            })
-            .filter((e): e is TemplateExercise => e !== null);
-
+          const plan = state.plans[planId];
+          if (!plan) return state;
           return {
-            templates: {
-              ...state.templates,
-              [templateId]: {
-                ...template,
-                exercises: reorderedExercises,
-                updatedAt: now,
-              },
+            plans: {
+              ...state.plans,
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({
+                ...day,
+                exercises: [
+                  ...day.exercises,
+                  { ...exercise, id: generateId(), orderIndex: day.exercises.length },
+                ],
+              })),
             },
           };
         });
       },
 
-      incrementUsage: (templateId): void => {
-        const now = new Date().toISOString();
-
+      updatePlanDayExercise: (planId, dayId, exerciseId, updates): void => {
         set((state) => {
-          const template = state.templates[templateId];
-          if (!template) return state;
-
+          const plan = state.plans[planId];
+          if (!plan) return state;
           return {
-            templates: {
-              ...state.templates,
-              [templateId]: {
-                ...template,
-                usageCount: template.usageCount + 1,
+            plans: {
+              ...state.plans,
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({
+                ...day,
+                exercises: day.exercises.map((e) =>
+                  e.id === exerciseId ? { ...e, ...updates } : e
+                ),
+              })),
+            },
+          };
+        });
+      },
+
+      removePlanDayExercise: (planId, dayId, exerciseId): void => {
+        set((state) => {
+          const plan = state.plans[planId];
+          if (!plan) return state;
+          return {
+            plans: {
+              ...state.plans,
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({
+                ...day,
+                exercises: day.exercises
+                  .filter((e) => e.id !== exerciseId)
+                  .map((e, idx) => ({ ...e, orderIndex: idx })),
+              })),
+            },
+          };
+        });
+      },
+
+      incrementPlanUsage: (planId): void => {
+        const now = new Date().toISOString();
+        set((state) => {
+          const plan = state.plans[planId];
+          if (!plan) return state;
+          return {
+            plans: {
+              ...state.plans,
+              [planId]: {
+                ...plan,
+                usageCount: plan.usageCount + 1,
                 lastUsedAt: now,
                 updatedAt: now,
               },
@@ -282,37 +238,34 @@ export const useTemplatesStore = create<TemplatesStore>()(
       version: STORAGE_VERSION,
       storage: createJSONStorage(() => safeStorage),
       partialize: (state) => ({
-        templates: state.templates,
-        templateIds: state.templateIds,
+        plans: state.plans,
+        planIds: state.planIds,
       }),
       migrate: (persistedState: unknown, version: number) => {
-        if (!persistedState) {
+        // Version 1 was the old templates store — clear it
+        if (version < 2) {
           return initialState;
         }
 
-        try {
-          const state = persistedState as { templates?: Record<string, unknown>; templateIds?: string[] };
-          const templates: Record<string, WorkoutTemplate> = {};
-          const templateIds: string[] = [];
+        if (!persistedState) return initialState;
 
-          if (state.templates) {
-            for (const [id, template] of Object.entries(state.templates)) {
-              if (isValidTemplate(template)) {
-                templates[id] = template;
-                templateIds.push(id);
+        try {
+          const state = persistedState as { plans?: Record<string, unknown>; planIds?: string[] };
+          const plans: Record<string, WorkoutPlan> = {};
+          const planIds: string[] = [];
+
+          if (state.plans) {
+            for (const [id, plan] of Object.entries(state.plans)) {
+              if (isValidPlan(plan)) {
+                plans[id] = plan;
+                planIds.push(id);
               }
             }
           }
 
-          // Use stored order if available, otherwise use collected IDs
-          const orderedIds = state.templateIds?.filter((id) => templates[id]) || templateIds;
-
-          return {
-            templates,
-            templateIds: orderedIds,
-          };
+          const orderedIds = state.planIds?.filter((id) => plans[id]) || planIds;
+          return { plans, planIds: orderedIds };
         } catch {
-          console.warn('Failed to migrate templates data, resetting to initial state');
           return initialState;
         }
       },
@@ -320,10 +273,15 @@ export const useTemplatesStore = create<TemplatesStore>()(
   )
 );
 
-// Selectors - NOTE: selectAllTemplates creates a new array, use with useMemo in components
-export const selectTemplateById = (id: string) => (state: TemplatesStore): WorkoutTemplate | undefined =>
-  state.templates[id];
+// Selectors
+export const selectPlanById = (id: string) => (state: TemplatesStore): WorkoutPlan | undefined =>
+  state.plans[id];
 
-// Hook for single template - returns stable reference
-export const useTemplate = (id: string) =>
-  useTemplatesStore((state) => state.templates[id]);
+export const usePlan = (id: string) =>
+  useTemplatesStore((state) => state.plans[id]);
+
+export const usePlanDay = (planId: string, dayId: string) =>
+  useTemplatesStore((state) => {
+    const plan = state.plans[planId];
+    return plan?.days.find((d) => d.id === dayId);
+  });

@@ -177,6 +177,96 @@ export interface GetExerciseSuggestionsArgs {
   limit?: number;
 }
 
+/**
+ * Tool definition for generating a multi-day workout plan
+ */
+export const WORKOUT_PLAN_TOOL: FunctionTool = {
+  type: 'function',
+  function: {
+    name: 'generate_workout_plan',
+    description: 'Generate a multi-day workout plan rotation (7 days including rest days). Call this to create the full weekly plan structure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Plan name (e.g., "4-Day PPL Split", "Upper/Lower Hypertrophy")',
+        },
+        description: {
+          type: 'string',
+          description: 'Brief overview of the plan, goals, and structure',
+        },
+        splitType: {
+          type: 'string',
+          enum: ['ppl', 'upper_lower', 'full_body', 'bro_split', 'push_pull', 'custom'],
+          description: 'The split type used',
+        },
+        days: {
+          type: 'array',
+          description: 'All 7 days of the weekly rotation',
+          items: {
+            type: 'object',
+            properties: {
+              dayLabel: {
+                type: 'string',
+                description: 'Label like "Day 1", "Day 2", "Rest Day"',
+              },
+              name: {
+                type: 'string',
+                description: 'Descriptive name like "Push (Chest/Shoulders/Tri)" or "Active Recovery"',
+              },
+              description: {
+                type: 'string',
+                description: 'Notes about this day (focus, intensity, etc.)',
+              },
+              targetMuscles: {
+                type: 'array',
+                items: { type: 'string', enum: MUSCLE_GROUPS },
+                description: 'Primary muscle groups targeted (empty for rest days)',
+              },
+              estimatedDuration: {
+                type: 'number',
+                description: 'Estimated session length in minutes (0 for rest days)',
+              },
+              isRestDay: {
+                type: 'boolean',
+                description: 'Whether this is a rest/recovery day',
+              },
+              isCardioDay: {
+                type: 'boolean',
+                description: 'Whether this is a dedicated cardio session',
+              },
+              cardioNotes: {
+                type: 'string',
+                description: 'Cardio details if applicable (e.g., "30 min LISS", "20 min HIIT")',
+              },
+            },
+            required: ['dayLabel', 'name', 'targetMuscles', 'estimatedDuration', 'isRestDay'],
+          },
+        },
+      },
+      required: ['name', 'description', 'splitType', 'days'],
+    },
+  },
+};
+
+export interface GenerateWorkoutPlanArgs {
+  name: string;
+  description: string;
+  splitType: string;
+  days: {
+    dayLabel: string;
+    name: string;
+    description?: string;
+    targetMuscles: MuscleGroup[];
+    estimatedDuration: number;
+    isRestDay: boolean;
+    isCardioDay?: boolean;
+    cardioNotes?: string;
+  }[];
+}
+
 export type TemplateCoachToolArgs =
   | { name: 'generate_workout_template'; args: GenerateWorkoutTemplateArgs }
-  | { name: 'get_exercise_suggestions'; args: GetExerciseSuggestionsArgs };
+  | { name: 'get_exercise_suggestions'; args: GetExerciseSuggestionsArgs }
+  | { name: 'generate_workout_plan'; args: GenerateWorkoutPlanArgs };

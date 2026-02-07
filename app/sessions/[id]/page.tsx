@@ -690,15 +690,15 @@ function SessionDetailInner() {
             isCompleted={session.isCompleted}
             hasEvents={
               session.trackerType === 'habit' ? !!session.habitLog?.entries?.length :
-              session.trackerType === 'gym' ? !!session.workoutLog?.exercises?.length :
-              session.trackerType === 'diet' ? !!session.dietLog?.meals?.length :
-              session.events.length > 0
+                session.trackerType === 'gym' ? !!session.workoutLog?.exercises?.length :
+                  session.trackerType === 'diet' ? !!session.dietLog?.meals?.length :
+                    session.events.length > 0
             }
             onComplete={
               session.trackerType === 'habit' ? handleCompleteHabitSession :
-              session.trackerType === 'gym' ? handleCompleteGymSession :
-              session.trackerType === 'diet' ? handleCompleteDietSession :
-              handleCompleteSession  // fallback for addiction/general
+                session.trackerType === 'gym' ? handleCompleteGymSession :
+                  session.trackerType === 'diet' ? handleCompleteDietSession :
+                    handleCompleteSession  // fallback for addiction/general
             }
             isCompleting={isCompleting}
           />
@@ -770,388 +770,388 @@ function SessionDetailInner() {
               </div>
             </>
           ) : /* Diet Tracker: Tabbed interface for Coach/Diet/Insights */
-          (session.analysis?.sessionType === 'diet' || session.trackerType === 'diet') ? (
-            <>
-              {/* Tab buttons */}
-              <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
-                <div className="flex">
-                  <button
-                    onClick={() => setActiveTab('coach')}
-                    className={`
+            (session.analysis?.sessionType === 'diet' || session.trackerType === 'diet') ? (
+              <>
+                {/* Tab buttons */}
+                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
+                  <div className="flex">
+                    <button
+                      onClick={() => setActiveTab('coach')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'coach'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
+                        }
                     `}
-                  >
-                    <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    {session.events.length > 0 && (
-                      <span className={`
+                    >
+                      <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                      {session.events.length > 0 && (
+                        <span className={`
                         text-[10px] px-1.5 py-0.5 rounded-full
                         ${activeTab === 'coach'
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                        }
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
+                          }
                       `}>
-                        {session.events.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('workout')}
-                    className={`
+                          {session.events.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('workout')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'workout'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
+                        }
                     `}
-                  >
-                    <Utensils className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    {session.dietLog?.meals?.length ? (
-                      <span className={`
+                    >
+                      <Utensils className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                      {session.dietLog?.meals?.length ? (
+                        <span className={`
                         text-[10px] px-1.5 py-0.5 rounded-full
                         ${activeTab === 'workout'
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                        }
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
+                          }
                       `}>
-                        {session.dietLog.meals.length}
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('insights')}
-                    className={`
+                          {session.dietLog.meals.length}
+                        </span>
+                      ) : null}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('insights')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'insights'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
-                    `}
-                  >
-                    <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Tab content - full width */}
-              <div className="-mx-5 sm:-mx-7 overflow-hidden">
-                {/* Coach Tab */}
-                <div className={activeTab === 'coach' ? 'block' : 'hidden'}>
-                  {session.events.length > 0 ? (
-                    <div className="divide-y divide-[var(--color-line)]">
-                      {session.events.map((event) => (
-                        <EventDraftRow
-                          key={event.id}
-                          event={event}
-                          sessionId={session.id}
-                          onRetry={handleRetry}
-                          onDelete={handleDelete}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-16 px-5">
-                      <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                      <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
-                      <p className="text-sm text-[var(--color-muted)] mt-1">
-                        Log your first meal below
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Diet Tab */}
-                <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
-                  <DietLogCard
-                    dietLog={session.dietLog}
-                    editable={true}
-                    onUpdate={(updatedDiet) => setDietLog(session.id, updatedDiet)}
-                  />
-                </div>
-
-                {/* Insights Tab */}
-                <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
-                  <div className="bg-[var(--color-surface)]">
-                    {/* Suggested Diet */}
-                    {session.suggestedDiet && (
-                      <div className="px-5 sm:px-7 py-4 border-b border-[var(--color-line)]">
-                        <SuggestedDiet suggestedDiet={session.suggestedDiet} />
-                      </div>
-                    )}
-
-                    {/* Analysis Section */}
-                    {session.analysis && (
-                      <InsightsSection title="Session Analysis" icon={BarChart3} defaultOpen={true}>
-                        <SessionAnalysisComponent analysis={session.analysis} />
-                      </InsightsSection>
-                    )}
-
-                    {/* Yesterday's Review */}
-                    {session.knowledge?.yesterdaysReview && (
-                      <InsightsSection title={`Yesterday (${session.knowledge.yesterdaysReview.periodKey})`} icon={Calendar} defaultOpen={true}>
-                        <div className="text-sm">
-                          <MarkdownRenderer content={session.knowledge.yesterdaysReview.summary} />
-                        </div>
-                      </InsightsSection>
-                    )}
-
-                    {/* Raw Knowledge */}
-                    {session.knowledge && (
-                      <InsightsSection
-                        title="Knowledge Base"
-                        icon={Sparkles}
-                        count={
-                          session.knowledge.events.length +
-                          session.knowledge.interpretations.length +
-                          session.knowledge.patterns.length +
-                          session.knowledge.insights.length +
-                          session.knowledge.reviews.length
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
                         }
-                      >
-                        <KnowledgeContent knowledge={session.knowledge} />
-                      </InsightsSection>
-                    )}
+                    `}
+                    >
+                      <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                    </button>
+                  </div>
+                </div>
 
-                    {/* Empty state */}
-                    {!session.analysis && !session.knowledge && (
+                {/* Tab content - full width */}
+                <div className="-mx-5 sm:-mx-7 overflow-hidden">
+                  {/* Coach Tab */}
+                  <div className={activeTab === 'coach' ? 'block' : 'hidden'}>
+                    {session.events.length > 0 ? (
+                      <div className="divide-y divide-[var(--color-line)]">
+                        {session.events.map((event) => (
+                          <EventDraftRow
+                            key={event.id}
+                            event={event}
+                            sessionId={session.id}
+                            onRetry={handleRetry}
+                            onDelete={handleDelete}
+                          />
+                        ))}
+                      </div>
+                    ) : (
                       <div className="flex flex-col items-center justify-center py-16 px-5">
-                        <Brain className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                        <p className="font-serif text-lg text-[var(--color-text)]">Building insights...</p>
+                        <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
+                        <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
                         <p className="text-sm text-[var(--color-muted)] mt-1">
-                          Analysis will appear as you log meals
+                          Log your first meal below
                         </p>
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
-            </>
-          ) : (session.analysis?.sessionType === 'gym' || session.trackerType === 'gym') ? (
-            <>
-              {/* Workout Planner Link */}
-              <div className="-mx-5 sm:-mx-7 px-4 py-2 border-b border-[var(--color-line)]">
-                <button
-                  onClick={() => router.push('/templates')}
-                  className="flex items-center gap-1.5 text-[11px] text-[var(--color-lime)] hover:underline"
-                >
-                  <ClipboardList className="w-3 h-3" />
-                  <span>Templates</span>
-                  <ChevronRight className="w-3 h-3 text-[var(--color-muted)]" />
-                </button>
-              </div>
 
-              {/* Tab buttons */}
-              <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
-                <div className="flex">
+                  {/* Diet Tab */}
+                  <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
+                    <DietLogCard
+                      dietLog={session.dietLog}
+                      editable={true}
+                      onUpdate={(updatedDiet) => setDietLog(session.id, updatedDiet)}
+                    />
+                  </div>
+
+                  {/* Insights Tab */}
+                  <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
+                    <div className="bg-[var(--color-surface)]">
+                      {/* Suggested Diet */}
+                      {session.suggestedDiet && (
+                        <div className="px-5 sm:px-7 py-4 border-b border-[var(--color-line)]">
+                          <SuggestedDiet suggestedDiet={session.suggestedDiet} />
+                        </div>
+                      )}
+
+                      {/* Analysis Section */}
+                      {session.analysis && (
+                        <InsightsSection title="Session Analysis" icon={BarChart3} defaultOpen={true}>
+                          <SessionAnalysisComponent analysis={session.analysis} />
+                        </InsightsSection>
+                      )}
+
+                      {/* Yesterday's Review */}
+                      {session.knowledge?.yesterdaysReview && (
+                        <InsightsSection title={`Yesterday (${session.knowledge.yesterdaysReview.periodKey})`} icon={Calendar} defaultOpen={true}>
+                          <div className="text-sm">
+                            <MarkdownRenderer content={session.knowledge.yesterdaysReview.summary} />
+                          </div>
+                        </InsightsSection>
+                      )}
+
+                      {/* Raw Knowledge */}
+                      {session.knowledge && (
+                        <InsightsSection
+                          title="Knowledge Base"
+                          icon={Sparkles}
+                          count={
+                            session.knowledge.events.length +
+                            session.knowledge.interpretations.length +
+                            session.knowledge.patterns.length +
+                            session.knowledge.insights.length +
+                            session.knowledge.reviews.length
+                          }
+                        >
+                          <KnowledgeContent knowledge={session.knowledge} />
+                        </InsightsSection>
+                      )}
+
+                      {/* Empty state */}
+                      {!session.analysis && !session.knowledge && (
+                        <div className="flex flex-col items-center justify-center py-16 px-5">
+                          <Brain className="w-12 h-12 text-[var(--color-line)] mb-4" />
+                          <p className="font-serif text-lg text-[var(--color-text)]">Building insights...</p>
+                          <p className="text-sm text-[var(--color-muted)] mt-1">
+                            Analysis will appear as you log meals
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (session.analysis?.sessionType === 'gym' || session.trackerType === 'gym') ? (
+              <>
+                {/* Workout Planner Link */}
+                <div className="-mx-5 sm:-mx-7 px-4 py-2 border-b border-[var(--color-line)]">
                   <button
-                    onClick={() => setActiveTab('coach')}
-                    className={`
+                    onClick={() => router.push('/templates')}
+                    className="flex items-center gap-1.5 text-[11px] text-[var(--color-lime)] hover:underline"
+                  >
+                    <ClipboardList className="w-3 h-3" />
+                    <span>Workout Program Planner</span>
+                    <ChevronRight className="w-3 h-3 text-[var(--color-muted)]" />
+                  </button>
+                </div>
+
+                {/* Tab buttons */}
+                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
+                  <div className="flex">
+                    <button
+                      onClick={() => setActiveTab('coach')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'coach'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
+                        }
                     `}
-                  >
-                    <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    {session.events.length > 0 && (
-                      <span className={`
+                    >
+                      <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                      {session.events.length > 0 && (
+                        <span className={`
                         text-[10px] px-1.5 py-0.5 rounded-full
                         ${activeTab === 'coach'
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                        }
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
+                          }
                       `}>
-                        {session.events.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('workout')}
-                    className={`
+                          {session.events.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('workout')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'workout'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
+                        }
                     `}
-                  >
-                    <Dumbbell className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    {session.workoutLog?.exercises?.length ? (
-                      <span className={`
+                    >
+                      <Dumbbell className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                      {session.workoutLog?.exercises?.length ? (
+                        <span className={`
                         text-[10px] px-1.5 py-0.5 rounded-full
                         ${activeTab === 'workout'
-                          ? 'bg-[var(--color-accent)] text-white'
-                          : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                        }
+                            ? 'bg-[var(--color-accent)] text-white'
+                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
+                          }
                       `}>
-                        {session.workoutLog.exercises.length}
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('insights')}
-                    className={`
+                          {session.workoutLog.exercises.length}
+                        </span>
+                      ) : null}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('insights')}
+                      className={`
                       flex-1 flex items-center justify-center gap-1.5
                       py-3
                       border-b-2 transition-all duration-200
                       ${activeTab === 'insights'
-                        ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
+                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
+                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
+                        }
                     `}
-                  >
-                    <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                  </button>
+                    >
+                      <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Tab content - full width */}
-              <div className="-mx-5 sm:-mx-7 overflow-hidden">
-                {/* Coach Tab */}
-                <div
-                  className={`
+                {/* Tab content - full width */}
+                <div className="-mx-5 sm:-mx-7 overflow-hidden">
+                  {/* Coach Tab */}
+                  <div
+                    className={`
                     ${activeTab === 'coach' ? 'block' : 'hidden'}
                   `}
-                >
-                  {session.events.length > 0 ? (
-                    <div className="divide-y divide-[var(--color-line)]">
-                      {session.events.map((event) => (
-                        <EventDraftRow
-                          key={event.id}
-                          event={event}
-                          sessionId={session.id}
-                          onRetry={handleRetry}
-                          onDelete={handleDelete}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-16 px-5">
-                      <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                      <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
-                      <p className="text-sm text-[var(--color-muted)] mt-1">
-                        Log your first exercise below
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Workout Tab */}
-                <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
-                  <WorkoutLogCard
-                    workoutLog={session.workoutLog}
-                    editable={true}
-                    onUpdate={(updatedWorkout) => setWorkoutLog(session.id, updatedWorkout)}
-                  />
-                </div>
-
-                {/* Insights Tab */}
-                <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
-                  <div className="bg-[var(--color-surface)]">
-                    {/* Analysis Section */}
-                    {session.analysis && (
-                      <InsightsSection title="Session Analysis" icon={BarChart3} defaultOpen={true}>
-                        <SessionAnalysisComponent analysis={session.analysis} />
-                      </InsightsSection>
-                    )}
-
-                    {/* Yesterday's Review */}
-                    {session.knowledge?.yesterdaysReview && (
-                      <InsightsSection title={`Yesterday (${session.knowledge.yesterdaysReview.periodKey})`} icon={Calendar} defaultOpen={true}>
-                        <div className="text-sm">
-                          <MarkdownRenderer content={session.knowledge.yesterdaysReview.summary} />
-                        </div>
-                      </InsightsSection>
-                    )}
-
-                    {/* Raw Knowledge */}
-                    {session.knowledge && (
-                      <InsightsSection
-                        title="Knowledge Base"
-                        icon={Sparkles}
-                        count={
-                          session.knowledge.events.length +
-                          session.knowledge.interpretations.length +
-                          session.knowledge.patterns.length +
-                          session.knowledge.insights.length +
-                          session.knowledge.reviews.length
-                        }
-                      >
-                        <KnowledgeContent knowledge={session.knowledge} />
-                      </InsightsSection>
-                    )}
-
-                    {/* Empty state */}
-                    {!session.analysis && !session.knowledge && (
+                  >
+                    {session.events.length > 0 ? (
+                      <div className="divide-y divide-[var(--color-line)]">
+                        {session.events.map((event) => (
+                          <EventDraftRow
+                            key={event.id}
+                            event={event}
+                            sessionId={session.id}
+                            onRetry={handleRetry}
+                            onDelete={handleDelete}
+                          />
+                        ))}
+                      </div>
+                    ) : (
                       <div className="flex flex-col items-center justify-center py-16 px-5">
-                        <Brain className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                        <p className="font-serif text-lg text-[var(--color-text)]">Building insights...</p>
+                        <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
+                        <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
                         <p className="text-sm text-[var(--color-muted)] mt-1">
-                          Analysis will appear as you log exercises
+                          Log your first exercise below
                         </p>
                       </div>
                     )}
+                  </div>
 
-                    {/* Loading states */}
-                    {!session.knowledge && !session.analysis && (
-                      <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--color-muted)]">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Loading insights...
-                      </div>
-                    )}
+                  {/* Workout Tab */}
+                  <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
+                    <WorkoutLogCard
+                      workoutLog={session.workoutLog}
+                      editable={true}
+                      onUpdate={(updatedWorkout) => setWorkoutLog(session.id, updatedWorkout)}
+                    />
+                  </div>
+
+                  {/* Insights Tab */}
+                  <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
+                    <div className="bg-[var(--color-surface)]">
+                      {/* Analysis Section */}
+                      {session.analysis && (
+                        <InsightsSection title="Session Analysis" icon={BarChart3} defaultOpen={true}>
+                          <SessionAnalysisComponent analysis={session.analysis} />
+                        </InsightsSection>
+                      )}
+
+                      {/* Yesterday's Review */}
+                      {session.knowledge?.yesterdaysReview && (
+                        <InsightsSection title={`Yesterday (${session.knowledge.yesterdaysReview.periodKey})`} icon={Calendar} defaultOpen={true}>
+                          <div className="text-sm">
+                            <MarkdownRenderer content={session.knowledge.yesterdaysReview.summary} />
+                          </div>
+                        </InsightsSection>
+                      )}
+
+                      {/* Raw Knowledge */}
+                      {session.knowledge && (
+                        <InsightsSection
+                          title="Knowledge Base"
+                          icon={Sparkles}
+                          count={
+                            session.knowledge.events.length +
+                            session.knowledge.interpretations.length +
+                            session.knowledge.patterns.length +
+                            session.knowledge.insights.length +
+                            session.knowledge.reviews.length
+                          }
+                        >
+                          <KnowledgeContent knowledge={session.knowledge} />
+                        </InsightsSection>
+                      )}
+
+                      {/* Empty state */}
+                      {!session.analysis && !session.knowledge && (
+                        <div className="flex flex-col items-center justify-center py-16 px-5">
+                          <Brain className="w-12 h-12 text-[var(--color-line)] mb-4" />
+                          <p className="font-serif text-lg text-[var(--color-text)]">Building insights...</p>
+                          <p className="text-sm text-[var(--color-muted)] mt-1">
+                            Analysis will appear as you log exercises
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Loading states */}
+                      {!session.knowledge && !session.analysis && (
+                        <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--color-muted)]">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading insights...
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </>
-          ) : (
-            /* Non-gym sessions: standard layout */
-            <>
-              {/* Legacy Master Summary Card (fallback for sessions without structured data) */}
-              {!session.workoutLog && !session.dietLog && (
-                <MasterSummaryCard
-                  summary={session.masterSummary}
-                  trackerType={session.trackerType || 'general'}
-                />
-              )}
+              </>
+            ) : (
+              /* Non-gym sessions: standard layout */
+              <>
+                {/* Legacy Master Summary Card (fallback for sessions without structured data) */}
+                {!session.workoutLog && !session.dietLog && (
+                  <MasterSummaryCard
+                    summary={session.masterSummary}
+                    trackerType={session.trackerType || 'general'}
+                  />
+                )}
 
-              {/* Events list */}
-              {session.events.length > 0 ? (
-                <div className="divide-y divide-[var(--color-line)]">
-                  {session.events.map((event) => (
-                    <EventDraftRow
-                      key={event.id}
-                      event={event}
-                      sessionId={session.id}
-                      onRetry={handleRetry}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 px-5">
-                  <div className="w-12 h-12 rounded-full bg-[var(--color-line)] mb-4" />
-                  <p className="font-serif text-lg text-[var(--color-text)]">No events yet</p>
-                  <p className="text-sm text-[var(--color-muted)] mt-1">
-                    Add your first event below
-                  </p>
-                </div>
-              )}
-            </>
-          )}
+                {/* Events list */}
+                {session.events.length > 0 ? (
+                  <div className="divide-y divide-[var(--color-line)]">
+                    {session.events.map((event) => (
+                      <EventDraftRow
+                        key={event.id}
+                        event={event}
+                        sessionId={session.id}
+                        onRetry={handleRetry}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 px-5">
+                    <div className="w-12 h-12 rounded-full bg-[var(--color-line)] mb-4" />
+                    <p className="font-serif text-lg text-[var(--color-text)]">No events yet</p>
+                    <p className="text-sm text-[var(--color-muted)] mt-1">
+                      Add your first event below
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
         </main>
 
         {/* Fixed EventInput at bottom (hidden for habit tracker) */}

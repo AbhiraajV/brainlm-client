@@ -5,33 +5,33 @@
  */
 export const designTokens = {
   colors: {
-    // Core palette - Dark mode, softer feel
-    bg: '#1a1a1f',
-    surface: '#252529',
+    // Core palette - Dark mode
+    bg: '#0e0e11',
+    surface: '#18181c',
     text: '#e8e8ec',
     muted: '#8a8a94',
     line: '#35353d',
 
-    // Primary Accent - Coral
-    accent: '#ee6055',
-    accentLight: '#f17d74',
-    accentDark: '#d94d42',
+    // Primary Accent - Pink
+    accent: '#ef476f',
+    accentLight: '#f26b8a',
+    accentDark: '#c4304f',
 
-    // Secondary Accent - Mint
-    accentSecondary: '#60d394',
-    accentSecondaryLight: '#aaf683',
-    accentSecondaryDark: '#4cb87d',
+    // Secondary Accent - Green
+    accentSecondary: '#06d6a0',
+    accentSecondaryLight: '#3de8b8',
+    accentSecondaryDark: '#05b384',
 
     // Color Palette
-    coral: '#ee6055',
-    mint: '#60d394',
-    lime: '#aaf683',
+    coral: '#ef476f',
+    mint: '#06d6a0',
+    lime: '#3de8b8',
 
     // Functional
-    success: '#60d394',
-    info: '#60d394',
-    warn: '#ee6055',
-    error: '#ee6055',
+    success: '#06d6a0',
+    info: '#06d6a0',
+    warn: '#ef476f',
+    error: '#ef476f',
   },
 
   fonts: {

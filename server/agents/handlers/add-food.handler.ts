@@ -12,6 +12,7 @@ export interface AddFoodResult {
   dietLog: DietLog;
   foodId: string;
   mealId: string;
+  wasDuplicate?: boolean;
 }
 
 /**
@@ -42,6 +43,20 @@ export function handleAddFood(
   }
 
   const meal = workingDietLog.meals[mealIndex];
+
+  // Duplicate guard: reject if last food has same name+calories and was added < 10 seconds ago
+  const lastFood = meal.foods[meal.foods.length - 1];
+  if (lastFood &&
+      lastFood.name.toLowerCase().trim() === args.name.toLowerCase().trim() &&
+      lastFood.macros.calories === args.calories &&
+      lastFood.loggedAt) {
+    const elapsed = Date.now() - new Date(lastFood.loggedAt).getTime();
+    if (elapsed < 10_000) { // 10 seconds — parallel tool calls execute in ms
+      console.log(`[handleAddFood] Duplicate guard: skipping duplicate food "${args.name}" (${args.calories}cal, ${elapsed}ms ago)`);
+      return { dietLog: workingDietLog, foodId: lastFood.id, mealId: mealId!, wasDuplicate: true };
+    }
+  }
+
   const foodId = generateId('food');
 
   // Create the new food item

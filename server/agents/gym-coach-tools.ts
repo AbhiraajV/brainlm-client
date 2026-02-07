@@ -113,17 +113,17 @@ export const GYM_COACH_TOOLS: FunctionTool[] = [
     type: 'function',
     function: {
       name: 'add_set',
-      description: 'Add a set to an existing exercise. Use when user logs weight and reps for an exercise. You can identify the exercise by EITHER exerciseId OR exerciseName.',
+      description: 'Add a set to an existing exercise. ALWAYS use exerciseId from CURRENT WORKOUT STATE. Only omit exerciseId when calling add_exercise + add_set together for a brand new exercise (use exerciseName to match the new exercise).',
       parameters: {
         type: 'object',
         properties: {
           exerciseId: {
             type: 'string',
-            description: 'ID of the exercise to add the set to (preferred if known)'
+            description: 'ID of the exercise from CURRENT WORKOUT STATE (e.g., "exercise_xxx"). REQUIRED for existing exercises.'
           },
           exerciseName: {
             type: 'string',
-            description: 'Name of the exercise to add the set to (use this when calling add_exercise + add_set together, or when exerciseId is unknown)'
+            description: 'Only use when calling add_exercise + add_set together for a NEW exercise. Never use for existing exercises.'
           },
           weight: {
             type: 'number',

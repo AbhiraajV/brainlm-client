@@ -1,61 +1,58 @@
 'use client';
 
-import { useState, useMemo, use } from 'react';
+import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Check, Play } from 'lucide-react';
-import { useTemplatesStore, usePlan } from '@/store/templates.store';
+import { useMealPlansStore, useMealPlan } from '@/store/meal-plans.store';
 import { useSessionsStore } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
-import { PlanDayCard, PreferencesSummary, MuscleFrequencyBar } from '@/components/templates';
+import { MealPlanMealList } from '@/components/meal-plans';
 import { BackButton } from '@/components/ui/BackButton';
-import { computeMuscleFrequency, workoutFromPlanDay } from '@/lib/templates/utils';
+import { createEmptyDietLog } from '@/lib/diet/macros';
+import type { DietGoal } from '@/lib/sessions/types';
 
-export default function PlanOverviewPage({ params }: { params: Promise<{ id: string }> }) {
+const goalLabels: Record<DietGoal, string> = {
+  weight_loss: 'Cutting',
+  muscle_gain: 'Bulking',
+  maintenance: 'Maintenance',
+  body_recomp: 'Recomp',
+  performance: 'Performance',
+  health: 'Health',
+};
+
+export default function MealPlanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const hydrated = useHydrated();
   const router = useRouter();
 
-  const plan = usePlan(id);
-  const updatePlan = useTemplatesStore((s) => s.updatePlan);
-  const incrementPlanUsage = useTemplatesStore((s) => s.incrementPlanUsage);
+  const plan = useMealPlan(id);
+  const updateMealPlan = useMealPlansStore((s) => s.updateMealPlan);
+  const incrementMealPlanUsage = useMealPlansStore((s) => s.incrementMealPlanUsage);
 
   const createSession = useSessionsStore((s) => s.createSession);
   const setTrackerType = useSessionsStore((s) => s.setTrackerType);
-  const setWorkoutLog = useSessionsStore((s) => s.setWorkoutLog);
+  const setDietLog = useSessionsStore((s) => s.setDietLog);
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
 
-  const frequency = useMemo(
-    () => (plan ? computeMuscleFrequency(plan.days) : {}),
-    [plan]
-  );
-
   const handleSaveName = () => {
     if (editedName.trim() && plan) {
-      updatePlan(id, { name: editedName.trim() });
+      updateMealPlan(id, { name: editedName.trim() });
     }
     setIsEditingName(false);
   };
 
-  const handleStartNextWorkout = () => {
+  const handleUsePlan = () => {
     if (!plan) return;
-    // Find next training day (first with exercises, or first non-rest)
-    const trainingDays = plan.days.filter((d) => !d.isRestDay);
-    const nextDay = trainingDays.find((d) => d.exercises.length > 0) || trainingDays[0];
-    if (!nextDay) return;
 
-    if (nextDay.exercises.length === 0) {
-      // No exercises yet, go to editor
-      router.push(`/templates/${id}/${nextDay.id}`);
-      return;
-    }
+    const sessionId = createSession(plan.name, `Meal Plan: ${plan.name}`);
+    setTrackerType(sessionId, 'diet');
 
-    const sessionId = createSession(nextDay.name, `${plan.name} - ${nextDay.name}`);
-    setTrackerType(sessionId, 'gym');
-    const workoutLog = workoutFromPlanDay(plan, nextDay);
-    setWorkoutLog(sessionId, workoutLog);
-    incrementPlanUsage(plan.id);
+    const dietLog = createEmptyDietLog(plan.targets);
+    setDietLog(sessionId, dietLog);
+
+    incrementMealPlanUsage(plan.id);
     router.push(`/sessions/${sessionId}`);
   };
 
@@ -63,7 +60,7 @@ export default function PlanOverviewPage({ params }: { params: Promise<{ id: str
     return (
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
         <header className="h-12 flex items-center px-4 border-b border-[var(--color-line)]">
-          <div className="text-sm font-medium text-[var(--color-text)]">Plan</div>
+          <div className="text-sm font-medium text-[var(--color-text)]">Meal Plan</div>
         </header>
         <main className="flex-1 flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-[var(--color-line)] border-t-[var(--color-lime)] rounded-full animate-spin" />
@@ -76,12 +73,12 @@ export default function PlanOverviewPage({ params }: { params: Promise<{ id: str
     return (
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
         <header className="h-12 flex items-center px-4 border-b border-[var(--color-line)]">
-          <div className="text-sm font-medium text-[var(--color-text)]">Plan</div>
+          <div className="text-sm font-medium text-[var(--color-text)]">Meal Plan</div>
         </header>
         <main className="flex-1 flex flex-col items-center justify-center px-4">
           <p className="text-sm text-[var(--color-text)]">Plan not found</p>
           <button
-            onClick={() => router.push('/templates')}
+            onClick={() => router.push('/meal-plans')}
             className="mt-3 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
           >
             Back to plans
@@ -92,9 +89,7 @@ export default function PlanOverviewPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const sortedDays = [...plan.days].sort((a, b) => a.orderIndex - b.orderIndex);
-  const trainingDayCount = plan.days.filter((d) => !d.isRestDay).length;
-  const hasAnyExercises = plan.days.some((d) => d.exercises.length > 0);
+  const goalLabel = goalLabels[plan.preferences.dietGoal] || plan.preferences.dietGoal;
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
@@ -130,9 +125,11 @@ export default function PlanOverviewPage({ params }: { params: Promise<{ id: str
       <main className="flex-1">
         {/* Info bar */}
         <div className="px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-3 text-[11px] text-[var(--color-muted)]">
-          <span>{trainingDayCount} training days</span>
+          <span>{goalLabel}</span>
           <span className="text-[var(--color-line)]">|</span>
-          <span>{7 - trainingDayCount} rest days</span>
+          <span>{plan.targetCalories} cal</span>
+          <span className="text-[var(--color-line)]">|</span>
+          <span>{plan.meals.length} meals</span>
           {plan.usageCount > 0 && (
             <>
               <span className="text-[var(--color-line)]">|</span>
@@ -148,38 +145,63 @@ export default function PlanOverviewPage({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* Preferences */}
-        <PreferencesSummary preferences={plan.preferences} />
-
-        {/* Muscle frequency */}
-        {Object.keys(frequency).length > 0 && (
-          <MuscleFrequencyBar frequency={frequency} />
-        )}
-
-        {/* 7-day rotation */}
-        <div className="py-1">
-          {sortedDays.map((day) => (
-            <PlanDayCard
-              key={day.id}
-              day={day}
-              onClick={day.isRestDay ? undefined : () => router.push(`/templates/${id}/${day.id}`)}
-            />
-          ))}
+        {/* Daily targets */}
+        <div className="px-4 py-3 border-b border-[var(--color-line)]">
+          <h3 className="text-[10px] text-[var(--color-muted)] uppercase tracking-wider mb-2">Daily Targets</h3>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="text-center">
+              <div className="text-lg font-medium text-[var(--color-text)]">{plan.targets.calories}</div>
+              <div className="text-[10px] text-[var(--color-muted)]">Calories</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-medium text-[var(--color-coral)]">{plan.targets.protein}g</div>
+              <div className="text-[10px] text-[var(--color-muted)]">Protein</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-medium text-[var(--color-mint)]">{plan.targets.carbs}g</div>
+              <div className="text-[10px] text-[var(--color-muted)]">Carbs</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-medium text-[var(--color-lime)]">{plan.targets.fat}g</div>
+              <div className="text-[10px] text-[var(--color-muted)]">Fat</div>
+            </div>
+          </div>
+          {plan.tdee && (
+            <div className="mt-2 text-[10px] text-[var(--color-muted)] text-center">
+              TDEE: {plan.tdee} cal
+              {plan.proteinPerKg && ` · ${plan.proteinPerKg}g/kg protein`}
+            </div>
+          )}
         </div>
 
-        {/* Spacer */}
+        {/* Rationale */}
+        {plan.rationale && (
+          <div className="px-4 py-3 border-b border-[var(--color-line)]">
+            <h3 className="text-[10px] text-[var(--color-muted)] uppercase tracking-wider mb-1.5">Rationale</h3>
+            <p className="text-xs text-[var(--color-text)] leading-relaxed whitespace-pre-line">
+              {plan.rationale}
+            </p>
+          </div>
+        )}
+
+        {/* Meals */}
+        <div className="py-1">
+          <MealPlanMealList meals={plan.meals} />
+        </div>
+
+        {/* Spacer for fixed button */}
         <div className="h-24" />
       </main>
 
-      {/* Start next workout button */}
-      {hasAnyExercises && (
+      {/* Use This Plan button */}
+      {plan.meals.length > 0 && (
         <div className="fixed bottom-20 left-0 right-0 px-4 pb-3 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)] to-transparent pt-6">
           <button
-            onClick={handleStartNextWorkout}
+            onClick={handleUsePlan}
             className="flex items-center justify-center gap-1.5 w-full py-2.5 px-4 bg-[var(--color-lime)] text-[var(--color-bg)] font-medium text-sm hover:bg-[var(--color-lime)]/90 transition-colors"
           >
             <Play className="w-3.5 h-3.5" />
-            Start Next Workout
+            Use This Plan
           </button>
         </div>
       )}

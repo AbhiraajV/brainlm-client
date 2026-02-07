@@ -231,90 +231,50 @@ ALWAYS:
 
 ---
 
+════════════════════════════════════════
+CURRENT SESSION (TODAY — this is what you modify with tools)
+════════════════════════════════════════
+${workoutContext}
+════════════════════════════════════════
+
+CRITICAL: If data already appears in CURRENT SESSION above, it is ALREADY LOGGED.
+Only call tools for NEW data from the user's CURRENT message.
+
+── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
 ${userContext}
 
 ${coachingContext}
-
-## HOW TO USE DEEP CONTEXT (FOR EVERY RESPONSE!)
-
-For EVERY response (not just struggles), use your context:
-
-1. **EXERCISE HISTORY** - Compare to their last session
-   - "70kg x 8 - that's +1 rep from your 7s last Tuesday"
-
-2. **PATTERNS** - Explain what you're seeing
-   - "Reps dropping on set 3 matches your fatigue pattern"
-
-3. **CORRELATIONS** - Connect the dots
-   - "You trained back yesterday, competing for recovery explains the dip"
-
-4. **WHAT WORKED BEFORE** - Proactively suggest
-   - "Last time at this weight, dropping 5kg for the last set got you 8 clean reps"
-
-5. **TODAY'S RISKS** - Watch for them
-   - "You mentioned poor sleep - keeping an eye on your form"
-
-Example good response:
-"70kg for 8, that's +1 from your 7s last week. You're 3 exercises deep so some fatigue is expected - last time you did 67.5kg for the third exercise and hit solid 8s. Two more sets then incline."
-
-Example bad response:
-"Good set! Keep it up."
+── END HISTORICAL ──
 
 ## DOMAIN KNOWLEDGE (User's History)
 ${brainTransfer || '(No prior history available)'}
 
-## MANDATORY: COMPARE TO LAST SESSION
-Before responding, ALWAYS:
-1. Find this exercise in the user's history above (Today's Plan, Relevant History, or Domain Knowledge)
-2. Compare today's set to their last session for this exercise
-3. Your comment MUST mention the comparison
+## RESPONSE RULES
 
-Example thought process:
-- User logs: "incline bench 70kg 8 reps"
-- Check history: "Last session: Incline Bench 70kg x 7,7,7"
-- Compare: 8 reps today vs 7 reps last time = +1 rep progress
-- Response: "70kg for 8, that's 1 more rep than your 7s last session."
+DEFAULT: 1 short sentence. The workout log card shows all the numbers — don't repeat them.
 
-## RESPONSE FORMAT - COACH TALK (MANDATORY STRUCTURE)
+GOOD: "Solid progress from last Tuesday." / "Fatigue showing, expected at exercise 3." / "Ready for incline?"
+BAD: "70kg for 8 reps, that's +1 from your 7s last session. Two more sets then incline." (log shows this)
 
-EVERY response MUST include:
+WHEN TO SAY MORE (2-3 sentences max):
+- User asks a question → answer it, with reasoning from their history
+- User is about to start something new → brief guidance based on what worked before
+- You notice something from their history that's relevant RIGHT NOW (e.g., "Last time you skipped the 3rd set here and regretted it")
+- There's a genuine pattern to call out (e.g., "You always drop reps on set 3 of this — try lowering 2.5kg")
 
-1. **Performance + History Comparison** (REQUIRED):
-   - "70kg x 8 - that's +1 from last week's 7s"
-   - "Down to 6 from 8 - fatigue kicking in after 3 exercises"
-   - "First time at 70kg - we'll track your progress"
+NEVER:
+- Recite weight/reps/calories/macros — the log card shows this
+- Say "X for Y, that's +Z from last time" — just say "up from last time" if relevant
+- Give unprompted long advice — keep it tight unless asked
+- Repeat anything already said in this conversation
+- Hallucinate history you don't have — only reference actual data from your context
+- Use generic praise without specific historical backing
+- Say "I've logged" / "recorded" / "tracking" — tools are invisible
 
-2. **Context-Based Insight** (when relevant):
-   - Reference patterns: "This matches your 3rd-exercise drop-off pattern"
-   - Reference correlations: "Back day yesterday is competing for recovery"
-   - Reference what worked: "Dropping 5kg got you 8 clean reps last time"
-
-3. **What's Next**:
-   - "Two more sets, then incline"
-   - "One more to go"
-   - "Bench done - incline next?"
-
-BANNED PHRASES:
-- "Good set!" / "Nice work!" / "Keep it up!" (empty praise)
-- "I've logged..." / "Recorded..." (tools are invisible)
-- "Let's focus on form" (generic advice without context)
-- Any response that doesn't reference their history
-
-**Additional contexts:**
-
-**After completing an exercise (3+ sets):**
-- "Bench done, solid session. Incline next?"
-- "That's 3 sets in the books. Ready for flys?"
-
-**Noticing manually added sets:**
-- "See you got one in at 70kg already. How'd it feel? Ready for set 2?"
-- "Log shows 2 sets done - picking up from there."
-
-**When user struggles or fails:**
-- Reference their history: "You hit X last time"
-- Explain WHY using patterns/correlations: "You're 3 exercises in, fatigue expected"
-- Give concrete next step: "Try 65kg, or move to flys"
-- Reference what worked before if applicable: "Last time you dropped 5kg and hit clean reps"
+USE HISTORY DYNAMICALLY:
+- Compare to their actual past data, not hypotheticals
+- "Last time on this exercise..." / "Your pattern shows..." / "This usually happens when..."
+- Only say these when you have the actual data. If you don't have relevant history, just keep it short.
 
 ${cycleContext}
 
@@ -380,6 +340,10 @@ Example add_exercise call:
 ---
 
 ## TOOL DECISION PROCESS (FOLLOW THIS IN ORDER)
+
+RULE: When calling add_set for an existing exercise, you MUST provide the exerciseId
+from CURRENT WORKOUT STATE. The IDs are shown as (ID: exercise_xxx).
+NEVER rely on exerciseName matching for existing exercises.
 
 Tools run SILENTLY - NEVER say "I'll log that", "Let me record", "logging your set". Just DO IT.
 
@@ -630,43 +594,12 @@ Examples:
 - "top set 185 for 5" → setType: "top"
 - "dropped to 135 for 10" → setType: "backoff" or "dropset" (context dependent)
 
-## CURRENT WORKOUT STATE - READ THIS CAREFULLY
+## FINAL RULES
 
-**IMPORTANT:** This shows ALL sets in the workout, including ones the user may have added manually (not via chat).
-If you see sets here that weren't mentioned in the conversation, the user added them themselves - still acknowledge and coach on them!
-
-Think: "How many sets are logged? What was discussed in chat? Any difference = user added manually."
-
-${workoutContext}
-
-## FINAL RESPONSE CHECKLIST
-
-Before responding, verify:
-1. ✓ Did I check the CURRENT WORKOUT STATE for sets that might have been added manually?
-2. ✓ Does my response reference their history OR workout progress?
-3. ✓ Am I guiding what's NEXT (not just commenting on what happened)?
-4. ✓ Would a real coach standing there say this?
-
-**RESPONSE TEMPLATE:**
-"[What they just did + comparison] [What's next]"
-
-**EXAMPLES:**
-- "70kg for 8, +1 from last session. Two more then we hit incline."
-- "Reps dropped to 6, fatigue from the heavy sets. One more and bench is done."
-- "That's 3 solid sets. Ready to move to flys?"
-- "See you already logged one at 70 - picking up with set 2?"
-
-**IF WORKOUT LOG HAS SETS NOT MENTIONED IN CHAT:**
-The user added them manually. Acknowledge this! They still did the work.
-- "Looks like you got 2 sets in already. How's the 70kg feeling? Ready for set 3?"
-
-**CRITICAL RULES:**
-- NEVER say "logged" / "recorded" / "tracking" - tools are invisible
-- NEVER give generic praise without history/progress context
-- NEVER ignore sets in the workout log just because they weren't in chat
-- ALWAYS think about workout flow and what comes next
-
-If user provides workout data or says "another set", you MUST call add_set. Never just comment.
+- Keep response to 1 short sentence unless user asked a question or you have a genuinely useful insight from history
+- No markdown, no formatting, no bullet points - just plain conversational text
+- NEVER recite numbers the log card already shows
+- If user provides workout data or says "another set", you MUST call add_set. Never just comment.
 `;
 }
 
@@ -782,14 +715,12 @@ export async function executeGymCoachAgent(
           // Capture last logged set for "another set" context
           if (toolName === 'add_set') {
             const setArgs = args as AddSetArgs;
-            // Find the exercise to get its name
+            // Find the exercise to get its name (strict match only)
             const exercise = setArgs.exerciseId
               ? workout.exercises.find(e => e.id === setArgs.exerciseId)
               : setArgs.exerciseName
                 ? workout.exercises.find(e =>
-                    e.exerciseName.toLowerCase() === setArgs.exerciseName?.toLowerCase() ||
-                    e.exerciseName.toLowerCase().includes(setArgs.exerciseName?.toLowerCase() ?? '') ||
-                    (setArgs.exerciseName?.toLowerCase() ?? '').includes(e.exerciseName.toLowerCase())
+                    e.exerciseName.toLowerCase().trim() === (setArgs.exerciseName?.toLowerCase().trim() ?? '')
                   )
                 : undefined;
 
@@ -823,8 +754,9 @@ export async function executeGymCoachAgent(
         }
       }
 
-      // Get final response after tool execution
-      const followUpMessages: ChatMessage[] = [
+      // Verification pass: inject updated state WITH tools still enabled
+      const updatedWorkoutContext = formatWorkoutForPrompt(workout);
+      const verificationMessages: ChatMessage[] = [
         ...messages,
         {
           role: 'assistant',
@@ -834,16 +766,92 @@ export async function executeGymCoachAgent(
         ...toolResults,
         {
           role: 'system',
-          content: `Generate your coaching comment. REQUIREMENTS:
-1. Compare to EXERCISE HISTORY above - cite specific numbers
-2. Reference PATTERNS/CORRELATIONS if relevant
-3. Include what's next (sets, exercise)
-4. NO generic praise - use their data`
+          content: `UPDATED WORKOUT STATE after your tool calls:
+${updatedWorkoutContext}
+
+VERIFY: Does every piece of data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond with your coaching comment (1 short sentence, no data recitation).`
         }
       ];
 
-      const followUpResponse = await callOpenAI(followUpMessages, false);
-      const coachComment = followUpResponse.choices?.[0]?.message?.content || 'Logged!';
+      const verificationResponse = await callOpenAI(verificationMessages, true);
+      const verificationMessage = verificationResponse.choices?.[0]?.message;
+
+      // If verification found issues and made more tool calls, process them
+      if (verificationMessage?.tool_calls && verificationMessage.tool_calls.length > 0) {
+        const verificationToolResults: ChatMessage[] = [];
+
+        for (const toolCall of verificationMessage.tool_calls) {
+          const toolName = toolCall.function.name;
+          toolsUsed.push(toolName);
+
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            const result = await processToolCall(workout, toolName, args);
+            workout = result.workout;
+            if (result.pr) prsDetected.push(result.pr);
+
+            // Update lastLoggedSet if add_set
+            if (toolName === 'add_set') {
+              const setArgs = args as AddSetArgs;
+              const exercise = setArgs.exerciseId
+                ? workout.exercises.find(e => e.id === setArgs.exerciseId)
+                : setArgs.exerciseName
+                  ? workout.exercises.find(e =>
+                      e.exerciseName.toLowerCase().trim() === (setArgs.exerciseName?.toLowerCase().trim() ?? '')
+                    )
+                  : undefined;
+              newLastLoggedSet = {
+                exerciseId: exercise?.id || setArgs.exerciseId || '',
+                exerciseName: exercise?.exerciseName || setArgs.exerciseName || '',
+                weight: setArgs.weight,
+                weightUnit: setArgs.weightUnit,
+                reps: setArgs.actualReps
+              };
+            }
+
+            verificationToolResults.push({
+              role: 'tool',
+              content: JSON.stringify({ success: true, ...result.data }),
+              tool_call_id: toolCall.id
+            });
+          } catch (toolError) {
+            console.error(`[GymCoachAgent] Verification tool ${toolName} error:`, toolError);
+            verificationToolResults.push({
+              role: 'tool',
+              content: JSON.stringify({
+                success: false,
+                error: toolError instanceof Error ? toolError.message : 'Unknown error'
+              }),
+              tool_call_id: toolCall.id
+            });
+          }
+        }
+
+        // Final call without tools for coaching comment
+        const finalMessages: ChatMessage[] = [
+          ...verificationMessages,
+          {
+            role: 'assistant',
+            content: verificationMessage.content || '',
+            tool_calls: verificationMessage.tool_calls
+          },
+          ...verificationToolResults
+        ];
+
+        const finalResponse = await callOpenAI(finalMessages, false);
+        const coachComment = finalResponse.choices?.[0]?.message?.content || 'Done!';
+
+        return {
+          updatedWorkout: workout,
+          coachComment,
+          toolsUsed,
+          prsDetected,
+          lastLoggedSet: newLastLoggedSet
+        };
+      }
+
+      // No verification tool calls — use the verification response as the coaching comment
+      const coachComment = verificationMessage?.content || 'Done!';
 
       return {
         updatedWorkout: workout,
@@ -884,7 +892,7 @@ async function callOpenAI(
     model: 'gpt-4o',
     messages,
     temperature: 0.1, // Very low for strict instruction following
-    max_tokens: 300 // Allow longer responses for template generation
+    max_tokens: includeTools ? 1024 : 200 // 1024 for tool reasoning, 200 for short coaching comments
   };
 
   if (includeTools) {
@@ -942,13 +950,11 @@ async function processToolCall(
         ? workout.exercises.find(e => e.id === setArgs.exerciseId)
         : undefined;
 
-      // Fallback to name lookup if not found by ID
+      // Fallback to name lookup if not found by ID (strict match only)
       if (!exercise && setArgs.exerciseName) {
-        const searchName = setArgs.exerciseName.toLowerCase();
+        const searchName = setArgs.exerciseName.toLowerCase().trim();
         exercise = workout.exercises.find(e =>
-          e.exerciseName.toLowerCase() === searchName ||
-          e.exerciseName.toLowerCase().includes(searchName) ||
-          searchName.includes(e.exerciseName.toLowerCase())
+          e.exerciseName.toLowerCase().trim() === searchName
         );
       }
 
@@ -975,7 +981,8 @@ async function processToolCall(
         data: {
           setNumber: result.setNumber,
           isPR: !!result.pr,
-          prType: result.pr?.prType
+          prType: result.pr?.prType,
+          wasDuplicate: result.wasDuplicate
         }
       };
     }

@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { EventFeed, DateRangeFilter, AnalysisStats } from "@/components/event-feed";
 import { GoToSessionsButton } from "@/components/sessions";
+import { SleepMorningPrompt } from "@/components/sleep/SleepMorningPrompt";
+import { SleepBedtimeButton } from "@/components/sleep/SleepBedtimeButton";
 
 export default async function Page() {
     return (
@@ -17,6 +19,10 @@ export default async function Page() {
                 {/* Event feed - progressive caching, filters client-side */}
                 <EventFeed limit={20} />
             </div>
+
+            {/* Sleep tracking overlays */}
+            <SleepMorningPrompt />
+            <SleepBedtimeButton />
 
             {/* Fixed sessions button - bottom left */}
             <GoToSessionsButton />

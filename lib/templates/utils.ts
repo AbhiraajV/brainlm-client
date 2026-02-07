@@ -1,6 +1,8 @@
-import type { WorkoutTemplate, WorkoutLog, ExerciseEntry, ExerciseTargets } from '@/lib/sessions/types';
+import type {
+  WorkoutTemplate, WorkoutLog, ExerciseEntry, ExerciseTargets,
+  WorkoutPlan, PlanDay, MuscleGroup,
+} from '@/lib/sessions/types';
 
-// Helper to generate UUIDs
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -13,8 +15,7 @@ const generateId = (): string => {
 };
 
 /**
- * Creates a WorkoutLog from a WorkoutTemplate.
- * Exercises are initialized with empty sets but populated targets from the template.
+ * Creates a WorkoutLog from a WorkoutTemplate (legacy).
  */
 export function workoutFromTemplate(template: WorkoutTemplate): WorkoutLog {
   const now = new Date().toISOString();
@@ -37,7 +38,7 @@ export function workoutFromTemplate(template: WorkoutTemplate): WorkoutLog {
       muscleGroup: te.muscleGroup,
       secondaryMuscles: te.secondaryMuscles,
       equipmentType: te.equipmentType,
-      sets: [], // Empty - user logs actual sets
+      sets: [],
       notes: te.notes,
       orderIndex: te.orderIndex,
       targets,
@@ -68,10 +69,78 @@ export function workoutFromTemplate(template: WorkoutTemplate): WorkoutLog {
 }
 
 /**
+ * Creates a WorkoutLog from a PlanDay within a WorkoutPlan.
+ */
+export function workoutFromPlanDay(plan: WorkoutPlan, day: PlanDay): WorkoutLog {
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
+
+  const exercises: ExerciseEntry[] = day.exercises.map((te) => {
+    const targets: ExerciseTargets = {
+      weight: te.targetWeight || 0,
+      weightUnit: te.targetWeightUnit || 'kg',
+      reps: te.targetReps,
+      sets: te.targetSets,
+      rationale: `From ${plan.name} - ${day.name}`,
+      confidence: 'high',
+      source: 'history',
+    };
+
+    return {
+      id: generateId(),
+      exerciseName: te.exerciseName,
+      muscleGroup: te.muscleGroup,
+      secondaryMuscles: te.secondaryMuscles,
+      equipmentType: te.equipmentType,
+      sets: [],
+      notes: te.notes,
+      orderIndex: te.orderIndex,
+      targets,
+    };
+  });
+
+  return {
+    id: generateId(),
+    date: today,
+    workoutName: day.name,
+    templateId: plan.id,
+    templateName: `${plan.name} - ${day.name}`,
+    muscleGroups: day.targetMuscles,
+    exercises,
+    summary: {
+      totalExercises: exercises.length,
+      totalSets: 0,
+      totalReps: 0,
+      totalVolume: 0,
+      totalVolumeUnit: 'kg',
+      muscleGroupsWorked: day.targetMuscles,
+      prCount: 0,
+    },
+    preferredUnit: 'kg',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Computes hits/week per muscle group from plan days' targetMuscles.
+ */
+export function computeMuscleFrequency(days: PlanDay[]): Record<string, number> {
+  const freq: Partial<Record<MuscleGroup, number>> = {};
+  for (const day of days) {
+    if (day.isRestDay) continue;
+    for (const mg of day.targetMuscles) {
+      freq[mg] = (freq[mg] || 0) + 1;
+    }
+  }
+  return freq as Record<string, number>;
+}
+
+/**
  * Estimates total workout duration based on exercises and sets.
- * Assumes ~2 minutes per set including rest.
+ * ~2 minutes per set including rest.
  */
 export function estimateWorkoutDuration(template: WorkoutTemplate): number {
   const totalSets = template.exercises.reduce((sum, e) => sum + e.targetSets, 0);
-  return Math.round(totalSets * 2); // ~2 minutes per set
+  return Math.round(totalSets * 2);
 }

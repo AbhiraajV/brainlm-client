@@ -8,6 +8,7 @@ import type { TrackerType } from '@/lib/sessions/types';
 import { useHydrated } from '@/hooks/useHydrated';
 import { SessionModal, type QuickSessionType } from '@/components/sessions/SessionModal';
 import { BackButton } from '@/components/ui/BackButton';
+import { useSleepStore } from '@/store/sleep.store';
 
 interface AppConfig {
   id: string;
@@ -29,6 +30,9 @@ export default function SessionsPage() {
   const setTrackerType = useSessionsStore((s) => s.setTrackerType);
   const deleteSession = useSessionsStore((s) => s.deleteSession);
   const router = useRouter();
+
+  const sleepEnabled = useSleepStore((s) => s.enabled);
+  const setSleepEnabled = useSleepStore((s) => s.setEnabled);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [quickType, setQuickType] = useState<QuickSessionType | undefined>(undefined);
@@ -151,8 +155,7 @@ export default function SessionsPage() {
       icon: Moon,
       color: '#6366f1',
       bgGradient: 'rgba(99, 102, 241, 0.15)',
-      trackerType: 'general',
-      comingSoon: true
+      trackerType: 'sleep',
     },
     {
       id: 'mood',
@@ -218,7 +221,7 @@ export default function SessionsPage() {
               return (
                 <div
                   key={app.id}
-                  onClick={app.comingSoon ? undefined : app.onClick}
+                  onClick={app.comingSoon ? undefined : app.id === 'sleep' ? undefined : app.onClick}
                   className={`
                     relative flex flex-col p-3 sm:p-4
                     bg-[var(--color-surface)] rounded-xl
@@ -226,7 +229,9 @@ export default function SessionsPage() {
                     transition-all duration-200
                     ${app.comingSoon
                       ? 'opacity-50 cursor-not-allowed'
-                      : 'hover:border-[var(--color-muted)] hover:shadow-lg hover:shadow-black/5 cursor-pointer active:scale-[0.98]'
+                      : app.id === 'sleep'
+                        ? 'cursor-default'
+                        : 'hover:border-[var(--color-muted)] hover:shadow-lg hover:shadow-black/5 cursor-pointer active:scale-[0.98]'
                     }
                     group
                   `}
@@ -263,7 +268,53 @@ export default function SessionsPage() {
 
                   {/* Status */}
                   <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
-                    {app.comingSoon ? (
+                    {app.id === 'sleep' ? (
+                      <div className="flex items-center justify-between">
+                        {sleepEnabled ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: app.color }} />
+                            <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>
+                              Active
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
+                            Off
+                          </span>
+                        )}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSleepEnabled(!sleepEnabled);
+                          }}
+                          role="switch"
+                          aria-checked={sleepEnabled}
+                          className="cursor-pointer"
+                          style={{
+                            position: 'relative',
+                            width: 36,
+                            height: 20,
+                            borderRadius: 10,
+                            backgroundColor: sleepEnabled ? app.color : 'var(--color-line)',
+                            transition: 'background-color 0.2s',
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 2,
+                              left: 2,
+                              width: 16,
+                              height: 16,
+                              borderRadius: 8,
+                              backgroundColor: '#fff',
+                              transform: sleepEnabled ? 'translateX(16px)' : 'translateX(0)',
+                              transition: 'transform 0.2s',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : app.comingSoon ? (
                       <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
                         Coming Soon
                       </span>

@@ -2,32 +2,32 @@
 
 @theme {
   /* Dark Mode Base Colors - Softer, premium feel */
-  --color-bg: #1a1a1f;
-  --color-surface: #252529;
+  --color-bg: #0e0e11;
+  --color-surface: #18181c;
   --color-text: #e8e8ec;
   --color-muted: #8a8a94;
   --color-line: #35353d;
 
-  /* Primary Accent - Coral */
-  --color-accent: #ee6055;
-  --color-accent-light: #f17d74;
-  --color-accent-dark: #d94d42;
+  /* Primary Accent - Pink */
+  --color-accent: #ef476f;
+  --color-accent-light: #f26b8a;
+  --color-accent-dark: #c4304f;
 
-  /* Secondary Accent - Mint */
-  --color-accent-secondary: #60d394;
-  --color-accent-secondary-light: #aaf683;
-  --color-accent-secondary-dark: #4cb87d;
+  /* Secondary Accent - Green */
+  --color-accent-secondary: #06d6a0;
+  --color-accent-secondary-light: #3de8b8;
+  --color-accent-secondary-dark: #05b384;
 
   /* Color Palette */
-  --color-coral: #ee6055;
-  --color-mint: #60d394;
-  --color-lime: #aaf683;
+  --color-coral: #ef476f;
+  --color-mint: #06d6a0;
+  --color-lime: #3de8b8;
 
   /* Functional Colors */
-  --color-success: #60d394;
-  --color-info: #60d394;
-  --color-warn: #ee6055;
-  --color-error: #ee6055;
+  --color-success: #06d6a0;
+  --color-info: #06d6a0;
+  --color-warn: #ef476f;
+  --color-error: #ef476f;
 
   /* Spacing & Radius */
   --radius-sm: 8px;

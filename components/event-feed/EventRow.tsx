@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, Layers, PlayCircle } from 'lucide-react'
+import { ChevronDown, Layers, PlayCircle, BrainCircuit } from 'lucide-react'
 import { AnalysisPanel } from './AnalysisPanel'
 import { TimeTag } from '@/components/ui/TimeTag'
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer'
@@ -220,23 +220,6 @@ export function EventRow({
         </div>
         */}
 
-        <button
-            onClick={onToggle}
-            aria-expanded={isExpanded}
-            aria-label={isExpanded ? 'Collapse analysis' : 'Expand analysis'}
-            className="
-              flex items-center gap-1
-              text-[11px] font-medium
-              text-[var(--color-accent-secondary)]
-              transition-all duration-200
-              hover:text-[var(--color-accent)]
-            "
-          >
-            <span>{isExpanded ? 'Hide Analysis' : 'Read Analysis'}</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-            />
-          </button>
       </div>
 
       {/* Event content - full width */}
@@ -267,6 +250,28 @@ export function EventRow({
         </div>
       )}
 
+      {/* Deep Analysis button - below event content */}
+      <button
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? 'Collapse analysis' : 'Expand analysis'}
+        className={`
+          flex items-center gap-1.5 mt-3
+          text-[11px] font-medium
+          px-2.5 py-1 rounded-full
+          transition-all duration-200
+          ${isExpanded
+            ? 'bg-[var(--color-accent)]/15 text-[var(--color-accent)]'
+            : 'bg-[var(--color-accent-secondary)]/10 text-[var(--color-accent-secondary)] hover:bg-[var(--color-accent-secondary)]/20'}
+        `}
+      >
+        <BrainCircuit className="w-3.5 h-3.5" />
+        <span>{isExpanded ? 'Hide' : 'Deep Analysis'}</span>
+        <ChevronDown
+          className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+        />
+      </button>
+
       {/* Analysis section */}
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-[var(--color-line)]">
@@ -278,8 +283,9 @@ export function EventRow({
 
             {/* Analysis content */}
             <div className="flex-1 min-w-0">
-              <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-accent-secondary)] mb-3 block">
-                Analysis
+              <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-accent-secondary)] mb-3 flex items-center gap-1.5">
+                <BrainCircuit className="w-3.5 h-3.5" />
+                Deep Analysis
               </span>
               <AnalysisPanel eventId={event.id} enablePolling={isRecentEvent} />
             </div>

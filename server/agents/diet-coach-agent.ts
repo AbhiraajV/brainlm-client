@@ -228,37 +228,65 @@ ALWAYS:
 
 ---
 
+════════════════════════════════════════
+CURRENT SESSION (TODAY — this is what you modify with tools)
+════════════════════════════════════════
+${dietContext}
+
+## DAILY TARGETS
+- Calories: ${currentDietLog.targets.calories}
+- Protein: ${currentDietLog.targets.protein}g
+- Carbs: ${currentDietLog.targets.carbs}g
+- Fat: ${currentDietLog.targets.fat}g
+
+## CURRENT PROGRESS
+- Calories: ${currentDietLog.summary.progress.consumed.calories}/${currentDietLog.targets.calories} (${Math.round(currentDietLog.summary.progress.percentages.calories)}%)
+- Protein: ${currentDietLog.summary.progress.consumed.protein}/${currentDietLog.targets.protein}g (${Math.round(currentDietLog.summary.progress.percentages.protein)}%)
+- Carbs: ${currentDietLog.summary.progress.consumed.carbs}/${currentDietLog.targets.carbs}g
+- Fat: ${currentDietLog.summary.progress.consumed.fat}/${currentDietLog.targets.fat}g
+
+## REMAINING
+- Calories: ${Math.round(currentDietLog.summary.progress.remaining.calories)}
+- Protein: ${Math.round(currentDietLog.summary.progress.remaining.protein)}g
+════════════════════════════════════════
+
+CRITICAL: If food already appears in CURRENT SESSION above, it is ALREADY LOGGED.
+Only call tools for NEW food from the user's CURRENT message.
+
+── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
 ${userContext}
 
 ${coachingContext}
-
-## HOW TO USE DEEP CONTEXT
-
-When user struggles or asks "what should I eat?":
-1. CHECK patterns - does this match a known pattern? ("You usually crave sweets around 3pm")
-2. CHECK correlations - what factors might explain this? ("You skipped breakfast, that's why you're hungry")
-3. CHECK whatWorkedBefore - what helped last time? ("Last time you had Greek yogurt as a snack")
-4. GIVE ACTIONABLE ADVICE with reasoning - not generic "try to eat healthy"
-
-Example good response:
-"You're at 40g protein at 4pm - that's behind your usual pace. You mentioned cravings in the afternoon before - a Greek yogurt or protein bar would hit 20g and take the edge off before dinner."
-
-Example bad response:
-"Try to eat something healthy for a snack."
+── END HISTORICAL ──
 
 ## DOMAIN KNOWLEDGE (User's History)
 ${brainTransfer || '(No prior history available)'}
 
-## MANDATORY: REFERENCE PROGRESS
-Before responding, ALWAYS:
-1. Check the CURRENT PROGRESS section below
-2. Reference where they stand on calories/protein
-3. Your comment MUST mention the numbers
+## RESPONSE RULES
 
-Example thought process:
-- User logs: "chicken salad for lunch"
-- Check progress: Was at 20g protein, now at 50g after ~30g from salad
-- Response: "Chicken salad, solid 30g protein. You're at 50/150g now - on track."
+DEFAULT: 1 short sentence. The diet log card shows all the numbers — don't repeat them.
+
+GOOD: "Greek yogurt's a smart pick before dinner." / "You tend to overeat Fridays without an afternoon snack."
+BAD: "That's 17g protein, putting you at 80/150g for the day. You've got 70g left for dinner." (log shows this)
+
+WHEN TO SAY MORE (2-3 sentences max):
+- User asks a question → answer it, with reasoning from their history
+- You notice a pattern from their history that's relevant RIGHT NOW (e.g., "When you skip the afternoon snack, you tend to overeat at dinner")
+- User has cravings or is struggling → reference what worked before
+
+NEVER:
+- Recite calories/protein/carbs/fat numbers — the log card shows this
+- Say "That's Xg protein, putting you at Y/Z" — just say "good protein hit" if relevant
+- Give unprompted long advice — keep it tight unless asked
+- Repeat anything already said in this conversation
+- Hallucinate history you don't have — only reference actual data from your context
+- Use generic praise without specific historical backing
+- Say "I've logged" / "recorded" / "tracking" — tools are invisible
+
+USE HISTORY DYNAMICALLY:
+- Compare to their actual past data, not hypotheticals
+- "Last Sunday you did X" / "When you skip the afternoon snack, you tend to overeat at dinner"
+- Only say these when you have the actual data. If you don't have relevant history, just keep it short.
 
 ${cycleContext}
 
@@ -300,47 +328,6 @@ COMMON MEALS (estimates):
 - "sandwich (basic)": ~400cal, 15g P, 45g C, 18g F
 - "burger": ~550cal, 25g P, 40g C, 30g F
 - "pizza (2 slices)": ~500cal, 20g P, 60g C, 20g F
-
-## RESPONSE FORMAT - COACH TALK
-
-Your response should sound like a nutritionist giving real-time feedback:
-
-**Structure:** [What they ate + macro impact] + [Progress check or suggestion]
-
-**After logging food:**
-- "Eggs and toast, solid breakfast - 15g protein to start. That's 15/150g for the day."
-- "Quick snack, 8g protein. You're at 60g, need 90 more - make dinner count."
-- "That puts you at 1800 cal with dinner to go. You've got 400 cal to play with."
-
-**When running low on a macro:**
-- "You're at 50g protein with dinner left. Aim for chicken or fish to hit your target."
-- "Only 30g protein so far at 3pm - let's get a shake or some Greek yogurt in."
-
-**When going over:**
-- "That puts you at 2200 cal already. Dinner should be light - maybe a big salad with chicken."
-- "You're over on carbs for the day. Focus on protein and fats for the rest."
-
-**Noticing manually added foods:**
-- "See you already logged lunch - 25g protein there. How'd it sit?"
-- "Looks like you had a shake earlier. Good call on the protein."
-
-**When user struggles or has cravings:**
-- Reference their history: "You mentioned afternoon cravings before"
-- Explain WHY: "Skipping breakfast means your blood sugar crashed" (use patterns/correlations)
-- Give concrete next step: "Greek yogurt has 17g protein and will help"
-- Reference what worked before if applicable: "Last time the protein bar worked well"
-
-**NEVER SAY:**
-- "I've logged..." / "Recorded..." (tools are invisible)
-- "Excellent choice!" / "Great job!" (empty praise)
-- "Try to eat healthy" (generic advice without context)
-- "That sounds good" (vague, no numbers)
-- Advice without referencing their specific targets/patterns
-
-**ALWAYS INCLUDE:**
-- Reference to their daily targets OR current progress (with numbers)
-- What's next (next meal suggestion or what to focus on)
-- When they struggle: WHY it might be happening (patterns, timing, etc.)
 
 ---
 
@@ -497,60 +484,12 @@ User: "am I getting enough protein?"
 - Keep coaching comments to 1-2 SHORT sentences, plain text only
 - No markdown, no formatting, no bullet points - just plain conversational text
 
-## CURRENT DIET LOG STATE - READ THIS CAREFULLY
+## FINAL RULES
 
-**IMPORTANT:** This shows ALL foods logged today, including ones the user may have added manually (not via chat).
-If you see foods here that weren't mentioned in the conversation, the user added them themselves - still acknowledge and coach on them!
-
-Think: "How many meals are logged? What was discussed in chat? Any difference = user added manually."
-
-${dietContext}
-
-## DAILY TARGETS
-- Calories: ${currentDietLog.targets.calories}
-- Protein: ${currentDietLog.targets.protein}g
-- Carbs: ${currentDietLog.targets.carbs}g
-- Fat: ${currentDietLog.targets.fat}g
-
-## CURRENT PROGRESS
-- Calories: ${currentDietLog.summary.progress.consumed.calories}/${currentDietLog.targets.calories} (${Math.round(currentDietLog.summary.progress.percentages.calories)}%)
-- Protein: ${currentDietLog.summary.progress.consumed.protein}/${currentDietLog.targets.protein}g (${Math.round(currentDietLog.summary.progress.percentages.protein)}%)
-- Carbs: ${currentDietLog.summary.progress.consumed.carbs}/${currentDietLog.targets.carbs}g
-- Fat: ${currentDietLog.summary.progress.consumed.fat}/${currentDietLog.targets.fat}g
-
-## REMAINING
-- Calories: ${Math.round(currentDietLog.summary.progress.remaining.calories)}
-- Protein: ${Math.round(currentDietLog.summary.progress.remaining.protein)}g
-
-## FINAL RESPONSE CHECKLIST
-
-Before responding, verify:
-1. ✓ Did I check the CURRENT DIET LOG STATE for foods that might have been added manually?
-2. ✓ Did I call tools to log any food mentioned in the message?
-3. ✓ Does my response reference their targets OR progress (with actual numbers)?
-4. ✓ Am I guiding what's NEXT (not just commenting on what happened)?
-5. ✓ Would a real nutritionist sitting there say this?
-
-**RESPONSE TEMPLATE:**
-"[What they ate + macro impact] [Progress update or next suggestion]"
-
-**EXAMPLES:**
-- "Eggs and toast, 15g protein. That's 15/150g for the day - good start."
-- "Chicken salad for lunch - 30g protein, you're at 45/150g now. Dinner can be lighter."
-- "Quick snack, 150 cal. You've got 600 left for dinner - plenty of room."
-- "See you already logged breakfast - 20g protein there. Ready for lunch?"
-
-**IF DIET LOG HAS FOODS NOT MENTIONED IN CHAT:**
-The user added them manually. Acknowledge this! They still ate the food.
-- "Looks like you got breakfast in already. 15g protein so far - what's the lunch plan?"
-
-**CRITICAL RULES:**
-- NEVER say "logged" / "recorded" / "tracking" - tools are invisible
-- NEVER give generic praise without progress/target context
-- NEVER ignore foods in the diet log just because they weren't in chat
-- ALWAYS think about the whole day and what comes next
-
-If user provides food data or asks about food they ate, you MUST call add_food. Never just comment.
+- Keep response to 1 short sentence unless user asked a question or you have a genuinely useful insight from history
+- No markdown, no formatting, no bullet points - just plain conversational text
+- NEVER recite numbers the log card already shows
+- If user provides food data or asks about food they ate, you MUST call add_food. Never just comment.
 `;
 }
 
@@ -700,8 +639,9 @@ export async function executeDietCoachAgent(
         }
       }
 
-      // Get final response after tool execution
-      const followUpMessages: ChatMessage[] = [
+      // Verification pass: inject updated state WITH tools still enabled
+      const updatedDietContext = formatDietLogForPrompt(workingDietLog);
+      const verificationMessages: ChatMessage[] = [
         ...messages,
         {
           role: 'assistant',
@@ -711,16 +651,91 @@ export async function executeDietCoachAgent(
         ...toolResults,
         {
           role: 'system',
-          content: `Generate your coaching comment. REQUIREMENTS:
-1. Reference their DAILY PROGRESS - cite specific numbers (e.g., "45g protein, 105 to go")
-2. Reference PATTERNS/CORRELATIONS if relevant to explain behavior
-3. Include what's next (next meal suggestion, remaining macros)
-4. NO generic praise - use their data`
+          content: `UPDATED DIET LOG STATE after your tool calls:
+${updatedDietContext}
+
+VERIFY: Does every piece of food data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond with your coaching comment (1 short sentence, no macro recitation).`
         }
       ];
 
-      const followUpResponse = await callOpenAI(followUpMessages, false);
-      const coachComment = followUpResponse.choices?.[0]?.message?.content || 'Logged!';
+      const verificationResponse = await callOpenAI(verificationMessages, true);
+      const verificationMessage = verificationResponse.choices?.[0]?.message;
+
+      // If verification found issues and made more tool calls, process them
+      if (verificationMessage?.tool_calls && verificationMessage.tool_calls.length > 0) {
+        const verificationToolResults: ChatMessage[] = [];
+
+        for (const toolCall of verificationMessage.tool_calls) {
+          const toolName = toolCall.function.name;
+          toolsUsed.push(toolName);
+
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            const result = await processToolCall(workingDietLog, toolName, args);
+            workingDietLog = result.dietLog;
+
+            // Update lastLoggedFood if add_food
+            if (toolName === 'add_food') {
+              const foodArgs = args as AddFoodArgs;
+              const meal = workingDietLog.meals.find(m =>
+                m.id === foodArgs.mealId ||
+                m.mealType === foodArgs.mealType
+              );
+              const food = meal?.foods[meal.foods.length - 1];
+              if (meal && food) {
+                newLastLoggedFood = {
+                  mealId: meal.id,
+                  mealType: meal.mealType,
+                  foodId: food.id,
+                  foodName: food.name,
+                  calories: food.macros.calories,
+                  protein: food.macros.protein
+                };
+              }
+            }
+
+            verificationToolResults.push({
+              role: 'tool',
+              content: JSON.stringify({ success: true, ...result.data }),
+              tool_call_id: toolCall.id
+            });
+          } catch (toolError) {
+            console.error(`[DietCoachAgent] Verification tool ${toolName} error:`, toolError);
+            verificationToolResults.push({
+              role: 'tool',
+              content: JSON.stringify({
+                success: false,
+                error: toolError instanceof Error ? toolError.message : 'Unknown error'
+              }),
+              tool_call_id: toolCall.id
+            });
+          }
+        }
+
+        // Final call without tools for coaching comment
+        const finalMessages: ChatMessage[] = [
+          ...verificationMessages,
+          {
+            role: 'assistant',
+            content: verificationMessage.content || '',
+            tool_calls: verificationMessage.tool_calls
+          },
+          ...verificationToolResults
+        ];
+
+        const finalResponse = await callOpenAI(finalMessages, false);
+        const coachComment = finalResponse.choices?.[0]?.message?.content || 'Done!';
+
+        return {
+          updatedDietLog: workingDietLog,
+          coachComment,
+          toolsUsed,
+          lastLoggedFood: newLastLoggedFood
+        };
+      }
+
+      // No verification tool calls — use the verification response as the coaching comment
+      const coachComment = verificationMessage?.content || 'Done!';
 
       return {
         updatedDietLog: workingDietLog,
@@ -758,7 +773,7 @@ async function callOpenAI(
     model: 'gpt-4o',
     messages,
     temperature: 0.1, // Low for strict instruction following (matches gym agent)
-    max_tokens: 300
+    max_tokens: includeTools ? 1024 : 200 // 1024 for tool reasoning, 200 for short coaching comments
   };
 
   if (includeTools) {
@@ -822,7 +837,8 @@ async function processToolCall(
             protein: (args as AddFoodArgs).protein,
             carbs: (args as AddFoodArgs).carbs,
             fat: (args as AddFoodArgs).fat
-          }
+          },
+          wasDuplicate: result.wasDuplicate
         }
       };
     }

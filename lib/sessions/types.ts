@@ -1,6 +1,6 @@
 // Sessions Types
 
-export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general' | 'habit';
+export type TrackerType = 'diet' | 'gym' | 'addiction' | 'general' | 'habit' | 'sleep';
 
 // ============================================================================
 // WORKOUT TRACKING TYPES
@@ -214,6 +214,118 @@ export interface WorkoutTemplate {
   muscleGroups: MuscleGroup[];
   exercises: TemplateExercise[];
   estimatedDuration?: number;    // minutes
+  createdAt: string;
+  updatedAt: string;
+  usageCount: number;
+  lastUsedAt?: string;
+}
+
+// ============================================================================
+// WORKOUT PLAN TYPES
+// ============================================================================
+
+export type TrainingGoal = 'weight_loss' | 'muscle_gain' | 'strength' | 'general_fitness' | 'endurance' | 'body_recomp';
+export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
+export type EquipmentAccess = 'full_gym' | 'home_gym' | 'dumbbells_only' | 'bodyweight' | 'minimal';
+export type SplitType = 'ppl' | 'upper_lower' | 'full_body' | 'bro_split' | 'push_pull' | 'custom';
+export type CardioLevel = 'none' | 'light' | 'moderate' | 'heavy';
+export type SessionDuration = 30 | 45 | 60 | 90;
+
+export interface WorkoutPreferences {
+  trainingGoal: TrainingGoal;
+  experienceLevel: ExperienceLevel;
+  equipmentAccess: EquipmentAccess;
+  daysPerWeek: number;
+  sessionDuration: SessionDuration;
+  focusAreas: MuscleGroup[];
+  deprioritizeAreas: MuscleGroup[];
+  splitType: SplitType;
+  cardioLevel: CardioLevel;
+  injuries?: string;
+  additionalNotes?: string;
+}
+
+export interface PlanDay {
+  id: string;
+  dayNumber: number;
+  dayLabel: string;
+  name: string;
+  description?: string;
+  targetMuscles: MuscleGroup[];
+  estimatedDuration: number;
+  exercises: TemplateExercise[];
+  isRestDay: boolean;
+  isCardioDay?: boolean;
+  cardioNotes?: string;
+  orderIndex: number;
+}
+
+export interface WorkoutPlan {
+  id: string;
+  name: string;
+  description?: string;
+  preferences: WorkoutPreferences;
+  days: PlanDay[];
+  createdAt: string;
+  updatedAt: string;
+  usageCount: number;
+  lastUsedAt?: string;
+}
+
+// ============================================================================
+// DIET PLAN / MEAL PLAN TYPES
+// ============================================================================
+
+export type DietGoal = 'weight_loss' | 'muscle_gain' | 'maintenance' | 'body_recomp' | 'performance' | 'health';
+export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extremely_active';
+export type DietStyle = 'flexible' | 'high_protein' | 'low_carb' | 'keto' | 'balanced' | 'high_carb';
+
+export interface DietPreferences {
+  dietGoal: DietGoal;
+  activityLevel: ActivityLevel;
+  dietStyle: DietStyle;
+  mealsPerDay: number;
+  allergies?: string;
+  foodPreferences?: string;
+  additionalNotes?: string;
+  weight?: number;
+  weightUnit?: 'kg' | 'lbs';
+  height?: number;
+  heightUnit?: 'cm' | 'ft';
+  age?: number;
+  gender?: 'male' | 'female' | 'other';
+}
+
+export interface MealPlanFood {
+  name: string;
+  portion: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export interface MealPlanEntry {
+  id: string;
+  mealType: MealType;
+  name: string;
+  foods: MealPlanFood[];
+  totalMacros: Macros;
+  time?: string;
+  notes?: string;
+}
+
+export interface MealPlan {
+  id: string;
+  name: string;
+  description?: string;
+  preferences: DietPreferences;
+  targets: DailyTargets;
+  meals: MealPlanEntry[];
+  tdee?: number;
+  targetCalories: number;
+  proteinPerKg?: number;
+  rationale: string;
   createdAt: string;
   updatedAt: string;
   usageCount: number;

@@ -32,6 +32,7 @@ export interface AddSetResult {
   workout: WorkoutLog;
   pr?: PRSummary;
   setNumber: number;
+  wasDuplicate?: boolean;
 }
 
 /**
@@ -127,13 +128,11 @@ export function handleAddSet(
     exerciseIndex = workout.exercises.findIndex(e => e.id === args.exerciseId);
   }
 
-  // If not found by ID, try by name (case-insensitive partial match)
+  // If not found by ID, try by name (strict case-insensitive match only)
   if (exerciseIndex === -1 && args.exerciseName) {
-    const searchName = args.exerciseName.toLowerCase();
+    const searchName = args.exerciseName.toLowerCase().trim();
     exerciseIndex = workout.exercises.findIndex(e =>
-      e.exerciseName.toLowerCase() === searchName ||
-      e.exerciseName.toLowerCase().includes(searchName) ||
-      searchName.includes(e.exerciseName.toLowerCase())
+      e.exerciseName.toLowerCase().trim() === searchName
     );
   }
 
@@ -142,6 +141,20 @@ export function handleAddSet(
   }
 
   const exercise = workout.exercises[exerciseIndex];
+
+  // Duplicate guard: reject if last set has same weight+reps and was added < 10 seconds ago
+  const lastSet = exercise.sets[exercise.sets.length - 1];
+  if (lastSet &&
+      lastSet.weight === args.weight &&
+      lastSet.actualReps === args.actualReps &&
+      lastSet.completedAt) {
+    const elapsed = Date.now() - new Date(lastSet.completedAt).getTime();
+    if (elapsed < 10_000) { // 10 seconds — parallel tool calls execute in ms
+      console.log(`[handleAddSet] Duplicate guard: skipping duplicate set for "${exercise.exerciseName}" (${args.weight}x${args.actualReps}, ${elapsed}ms ago)`);
+      return { workout, setNumber: lastSet.setNumber, wasDuplicate: true };
+    }
+  }
+
   const setNumber = exercise.sets.length + 1;
 
   // Calculate computed fields for the new set
