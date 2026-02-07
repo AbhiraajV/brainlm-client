@@ -245,33 +245,3 @@ export async function updateWorkoutSession(
 
   return { success: true };
 }
-
-/**
- * Create a new empty workout log for the current session
- */
-export function createEmptyWorkoutLog(
-  workoutName?: string,
-  preferredUnit: 'kg' | 'lbs' = 'kg'
-): WorkoutLog {
-  const now = new Date().toISOString();
-
-  return {
-    id: `workout_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    date: now.split('T')[0],
-    workoutName,
-    muscleGroups: [],
-    exercises: [],
-    summary: {
-      totalExercises: 0,
-      totalSets: 0,
-      totalReps: 0,
-      totalVolume: 0,
-      totalVolumeUnit: preferredUnit,
-      muscleGroupsWorked: [],
-      prCount: 0
-    },
-    preferredUnit,
-    createdAt: now,
-    updatedAt: now
-  };
-}

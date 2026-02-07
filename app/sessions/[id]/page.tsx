@@ -15,7 +15,6 @@ import { HabitCalendarView } from '@/components/sessions/HabitCalendarView';
 import { SuggestedDiet } from '@/components/sessions/SuggestedDiet';
 import { PRCelebration } from '@/components/sessions/PRCelebration';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
-import { generateDietSuggestion } from '@/server/actions/generate-suggestion.actions';
 import { completeSession } from '@/server/actions/session-complete.actions';
 import { BackButton } from '@/components/ui/BackButton';
 import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
@@ -25,6 +24,8 @@ import { Trash2, MessageSquare, Dumbbell, Utensils, CheckSquare, CalendarDays, B
 import { useHabitsStore } from '@/store/habits.store';
 import { createEmptyHabitLog, recalculateSummary } from '@/lib/habit/utils';
 import { saveHabitSession } from '@/server/actions/habit-session.actions';
+import { saveWorkoutSession } from '@/server/actions/workout-session.actions';
+import { saveDietSession } from '@/server/actions/diet-session.actions';
 import { SessionAnalysis as SessionAnalysisComponent } from '@/components/sessions/SessionAnalysis';
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 import type { SessionKnowledge } from '@/lib/sessions/types';
@@ -264,14 +265,12 @@ function SessionDetailInner() {
   const session = useSession(sessionId);
   const setEventLlmComment = useSessionsStore((s) => s.setEventLlmComment);
   const markSessionCompleted = useSessionsStore((s) => s.markSessionCompleted);
-  const setSuggestedDiet = useSessionsStore((s) => s.setSuggestedDiet);
   const setTrackerType = useSessionsStore((s) => s.setTrackerType);
   const deleteEventDraft = useSessionsStore((s) => s.deleteEventDraft);
   const setWorkoutLog = useSessionsStore((s) => s.setWorkoutLog);
   const setDietLog = useSessionsStore((s) => s.setDietLog);
   const setHabitLog = useSessionsStore((s) => s.setHabitLog);
   const [isCompleting, setIsCompleting] = useState(false);
-  const [isGeneratingDiet, setIsGeneratingDiet] = useState(false);
   const [prsDetected, setPrsDetected] = useState<PRSummary[]>([]);
   const [lastLoggedSet, setLastLoggedSet] = useState<LastLoggedSet | null>(null);
   const [activeTab, setActiveTab] = useState<'coach' | 'workout' | 'insights' | 'habit' | 'history'>('coach');
@@ -538,27 +537,6 @@ function SessionDetailInner() {
     }
   };
 
-  // Handle generating diet suggestion
-  const handleGenerateDiet = async () => {
-    if (!session?.knowledge || isGeneratingDiet) return;
-
-    setIsGeneratingDiet(true);
-    try {
-      const result = await generateDietSuggestion(
-        session.title,
-        session.sessionContext || session.analysis?.userGoals || '',
-        session.knowledge
-      );
-      if (result) {
-        setSuggestedDiet(session.id, result);
-      }
-    } catch (err) {
-      console.error('[handleGenerateDiet] Error:', err);
-    } finally {
-      setIsGeneratingDiet(false);
-    }
-  };
-
   // Auto-initialize habit log + set default tab for habit sessions
   const habitInitRef = useRef(false);
   useEffect(() => {
@@ -594,6 +572,38 @@ function SessionDetailInner() {
       router.push('/sessions');
     } catch (err) {
       console.error('[handleCompleteHabitSession] Error:', err);
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
+  // Handle gym session completion - saves workoutLog with rawJson + trackedType + WorkerJob
+  const handleCompleteGymSession = async () => {
+    if (!session?.workoutLog || isCompleting) return;
+
+    setIsCompleting(true);
+    try {
+      await saveWorkoutSession(session.workoutLog);
+      markSessionCompleted(session.id);
+      router.push('/sessions');
+    } catch (err) {
+      console.error('[handleCompleteGymSession] Error:', err);
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
+  // Handle diet session completion - saves dietLog with rawJson + trackedType + WorkerJob
+  const handleCompleteDietSession = async () => {
+    if (!session?.dietLog || isCompleting) return;
+
+    setIsCompleting(true);
+    try {
+      await saveDietSession(session.dietLog);
+      markSessionCompleted(session.id);
+      router.push('/sessions');
+    } catch (err) {
+      console.error('[handleCompleteDietSession] Error:', err);
     } finally {
       setIsCompleting(false);
     }
@@ -678,8 +688,18 @@ function SessionDetailInner() {
             analysis={session.analysis}
             trackerType={session.trackerType}
             isCompleted={session.isCompleted}
-            hasEvents={session.trackerType === 'habit' ? !!session.habitLog?.entries?.length : session.events.length > 0}
-            onComplete={session.trackerType === 'habit' ? handleCompleteHabitSession : handleCompleteSession}
+            hasEvents={
+              session.trackerType === 'habit' ? !!session.habitLog?.entries?.length :
+              session.trackerType === 'gym' ? !!session.workoutLog?.exercises?.length :
+              session.trackerType === 'diet' ? !!session.dietLog?.meals?.length :
+              session.events.length > 0
+            }
+            onComplete={
+              session.trackerType === 'habit' ? handleCompleteHabitSession :
+              session.trackerType === 'gym' ? handleCompleteGymSession :
+              session.trackerType === 'diet' ? handleCompleteDietSession :
+              handleCompleteSession  // fallback for addiction/general
+            }
             isCompleting={isCompleting}
           />
 
@@ -862,13 +882,9 @@ function SessionDetailInner() {
                 <div className={activeTab === 'insights' ? 'block' : 'hidden'}>
                   <div className="bg-[var(--color-surface)]">
                     {/* Suggested Diet */}
-                    {(session.suggestedDiet || session.knowledge) && (
+                    {session.suggestedDiet && (
                       <div className="px-5 sm:px-7 py-4 border-b border-[var(--color-line)]">
-                        <SuggestedDiet
-                          suggestedDiet={session.suggestedDiet}
-                          onGenerate={session.knowledge ? handleGenerateDiet : undefined}
-                          isGenerating={isGeneratingDiet}
-                        />
+                        <SuggestedDiet suggestedDiet={session.suggestedDiet} />
                       </div>
                     )}
 

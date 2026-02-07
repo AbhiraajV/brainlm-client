@@ -32,7 +32,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             {/* Minimal header */}
             <header className="
                 sticky top-0 z-10
-                h-14
+                h-10
                 flex items-center justify-between
                 px-5 sm:px-7
                 bg-[var(--color-surface)]
@@ -47,7 +47,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             </header>
 
             {/* Main content - add bottom padding for fixed input */}
-            <main className="flex-1 container-padding py-6 sm:py-8 pb-40">
+            <main className="flex-1 container-padding py-3 sm:py-4 pb-40">
                 {children}
             </main>
 

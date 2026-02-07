@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import type { HabitLog, HabitEntry, HabitPolarity } from '@/lib/sessions/types';
+import type { HabitLog, HabitEntry, HabitPolarity, HabitReflection } from '@/lib/sessions/types';
 import { useHabitsStore } from '@/store/habits.store';
 import { recalculateSummary } from '@/lib/habit/utils';
-import { Check, Circle, ChevronDown, ChevronRight, Plus, X, AlertTriangle, Shield } from 'lucide-react';
+import { Check, Circle, ChevronDown, ChevronRight, Plus, X, AlertTriangle, Shield, Trash2 } from 'lucide-react';
 
 interface HabitLogCardProps {
   habitLog: HabitLog | undefined;
@@ -19,6 +19,7 @@ export function HabitLogCard({ habitLog, editable = false, onUpdate, onComplete 
   const [newHabitName, setNewHabitName] = useState('');
   const [newHabitPolarity, setNewHabitPolarity] = useState<HabitPolarity>('positive');
   const addHabitToStore = useHabitsStore((s) => s.addHabit);
+  const deleteHabitFromStore = useHabitsStore((s) => s.deleteHabit);
 
   const positiveEntries = habitLog?.entries.filter((e) => e.polarity === 'positive') || [];
   const negativeEntries = habitLog?.entries.filter((e) => e.polarity === 'negative') || [];
@@ -42,17 +43,38 @@ export function HabitLogCard({ habitLog, editable = false, onUpdate, onComplete 
     [habitLog, editable, onUpdate]
   );
 
-  const updateComment = useCallback(
-    (habitId: string, comment: string) => {
-      if (!habitLog || !editable || !onUpdate) return;
+  const addReflection = useCallback(
+    (habitId: string, text: string) => {
+      if (!habitLog || !editable || !onUpdate || !text.trim()) return;
+
+      const reflection: HabitReflection = {
+        text: text.trim(),
+        createdAt: new Date().toISOString(),
+      };
 
       const updatedEntries = habitLog.entries.map((e) =>
-        e.habitId === habitId ? { ...e, comment: comment || undefined } : e
+        e.habitId === habitId
+          ? { ...e, reflections: [...(e.reflections || []), reflection] }
+          : e
       );
 
       onUpdate({ ...habitLog, entries: updatedEntries, updatedAt: new Date().toISOString() });
     },
     [habitLog, editable, onUpdate]
+  );
+
+  const handleDeleteHabit = useCallback(
+    (habitId: string) => {
+      if (!habitLog || !onUpdate) return;
+
+      // Remove from persistent store
+      deleteHabitFromStore(habitId);
+
+      // Remove from current log
+      const updatedEntries = habitLog.entries.filter((e) => e.habitId !== habitId);
+      onUpdate(recalculateSummary({ ...habitLog, entries: updatedEntries }));
+    },
+    [habitLog, onUpdate, deleteHabitFromStore]
   );
 
   const handleAddHabit = useCallback(() => {
@@ -221,7 +243,8 @@ export function HabitLogCard({ habitLog, editable = false, onUpdate, onComplete 
                 onExpand={() =>
                   setExpandedEntry(expandedEntry === entry.habitId ? null : entry.habitId)
                 }
-                onCommentChange={(comment) => updateComment(entry.habitId, comment)}
+                onAddReflection={(text) => addReflection(entry.habitId, text)}
+                onDelete={() => handleDeleteHabit(entry.habitId)}
               />
             ))}
           </div>
@@ -250,7 +273,8 @@ export function HabitLogCard({ habitLog, editable = false, onUpdate, onComplete 
                 onExpand={() =>
                   setExpandedEntry(expandedEntry === entry.habitId ? null : entry.habitId)
                 }
-                onCommentChange={(comment) => updateComment(entry.habitId, comment)}
+                onAddReflection={(text) => addReflection(entry.habitId, text)}
+                onDelete={() => handleDeleteHabit(entry.habitId)}
               />
             ))}
           </div>
@@ -359,6 +383,88 @@ export function HabitLogCard({ habitLog, editable = false, onUpdate, onComplete 
   );
 }
 
+// Helper: get all reflections (merge legacy comment + reflections array)
+function getReflections(entry: HabitEntry): HabitReflection[] {
+  const reflections = entry.reflections || [];
+  // If legacy comment exists and no reflections, show it as a legacy entry
+  if (entry.comment && reflections.length === 0) {
+    return [{ text: entry.comment, createdAt: entry.checkedAt || '' }];
+  }
+  return reflections;
+}
+
+// Helper: format reflection timestamp
+function formatReflectionTime(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// Reflections display + input shared by both row types
+function ReflectionsArea({
+  entry,
+  editable,
+  onAddReflection,
+  placeholder,
+}: {
+  entry: HabitEntry;
+  editable: boolean;
+  onAddReflection: (text: string) => void;
+  placeholder: string;
+}) {
+  const [inputValue, setInputValue] = useState('');
+  const reflections = getReflections(entry);
+
+  const handleSubmit = () => {
+    if (!inputValue.trim()) return;
+    onAddReflection(inputValue);
+    setInputValue('');
+  };
+
+  return (
+    <div className="px-5 sm:px-7 pb-3 pl-14 sm:pl-16">
+      {/* Existing reflections list */}
+      {reflections.length > 0 && (
+        <div className="space-y-1.5 mb-2">
+          {reflections.map((r, i) => (
+            <div key={i} className="flex items-start gap-2">
+              {r.createdAt && (
+                <span className="text-[10px] text-[var(--color-muted)] whitespace-nowrap mt-0.5 min-w-[5rem]">
+                  {formatReflectionTime(r.createdAt)}
+                </span>
+              )}
+              <p className="text-sm text-[var(--color-muted)] italic">{r.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add reflection input */}
+      {editable && (
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSubmit();
+          }}
+          placeholder={placeholder}
+          className="
+            w-full bg-[var(--color-bg)] border border-[var(--color-line)] rounded-none
+            px-3 py-2 text-sm text-[var(--color-text)]
+            placeholder:text-[var(--color-muted)]
+            focus:outline-none focus:border-[var(--color-accent)]
+          "
+        />
+      )}
+
+      {!editable && reflections.length === 0 && (
+        <p className="text-xs text-[var(--color-muted)]">No reflections</p>
+      )}
+    </div>
+  );
+}
+
 // Individual positive habit row
 function HabitRow({
   entry,
@@ -366,14 +472,16 @@ function HabitRow({
   isExpanded,
   onToggle,
   onExpand,
-  onCommentChange,
+  onAddReflection,
+  onDelete,
 }: {
   entry: HabitEntry;
   editable: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onExpand: () => void;
-  onCommentChange: (comment: string) => void;
+  onAddReflection: (text: string) => void;
+  onDelete: () => void;
 }) {
   const isDone = entry.status === 'done';
 
@@ -418,7 +526,17 @@ function HabitRow({
           {entry.habitName}
         </span>
 
-        {/* Expand for comment */}
+        {/* Delete */}
+        {editable && (
+          <button
+            onClick={onDelete}
+            className="text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* Expand for reflections */}
         <button
           onClick={onExpand}
           className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
@@ -431,29 +549,14 @@ function HabitRow({
         </button>
       </div>
 
-      {/* Comment area */}
+      {/* Reflections area */}
       {isExpanded && (
-        <div className="px-5 sm:px-7 pb-3 pl-14 sm:pl-16">
-          {editable ? (
-            <textarea
-              value={entry.comment || ''}
-              onChange={(e) => onCommentChange(e.target.value)}
-              placeholder="Reflection..."
-              rows={2}
-              className="
-                w-full bg-[var(--color-bg)] border border-[var(--color-line)] rounded-lg
-                px-3 py-2 text-sm text-[var(--color-text)]
-                placeholder:text-[var(--color-muted)]
-                focus:outline-none focus:border-[var(--color-accent)]
-                resize-none
-              "
-            />
-          ) : entry.comment ? (
-            <p className="text-sm text-[var(--color-muted)] italic">{entry.comment}</p>
-          ) : (
-            <p className="text-xs text-[var(--color-muted)]">No reflection</p>
-          )}
-        </div>
+        <ReflectionsArea
+          entry={entry}
+          editable={editable}
+          onAddReflection={onAddReflection}
+          placeholder="Add reflection..."
+        />
       )}
     </div>
   );
@@ -466,14 +569,16 @@ function AntiHabitRow({
   isExpanded,
   onToggle,
   onExpand,
-  onCommentChange,
+  onAddReflection,
+  onDelete,
 }: {
   entry: HabitEntry;
   editable: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onExpand: () => void;
-  onCommentChange: (comment: string) => void;
+  onAddReflection: (text: string) => void;
+  onDelete: () => void;
 }) {
   const hasSlipped = entry.status === 'done';
 
@@ -501,18 +606,26 @@ function AntiHabitRow({
         {/* Actions */}
         <div className="flex items-center gap-2">
           {editable && (
-            <button
-              onClick={onToggle}
-              className={`
-                text-[10px] px-2 py-1 rounded-lg border transition-colors
-                ${hasSlipped
-                  ? 'border-[var(--color-success)]/50 text-[var(--color-success)] hover:bg-[var(--color-success)]/10'
-                  : 'border-[var(--color-error)]/50 text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
-                }
-              `}
-            >
-              {hasSlipped ? 'Undo' : 'I slipped'}
-            </button>
+            <>
+              <button
+                onClick={onToggle}
+                className={`
+                  text-[10px] px-2 py-1 rounded-lg border transition-colors
+                  ${hasSlipped
+                    ? 'border-[var(--color-success)]/50 text-[var(--color-success)] hover:bg-[var(--color-success)]/10'
+                    : 'border-[var(--color-error)]/50 text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
+                  }
+                `}
+              >
+                {hasSlipped ? 'Undo' : 'I slipped'}
+              </button>
+              <button
+                onClick={onDelete}
+                className="text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
           <button
             onClick={onExpand}
@@ -527,29 +640,14 @@ function AntiHabitRow({
         </div>
       </div>
 
-      {/* Comment area */}
+      {/* Reflections area */}
       {isExpanded && (
-        <div className="px-5 sm:px-7 pb-3 pl-14 sm:pl-16">
-          {editable ? (
-            <textarea
-              value={entry.comment || ''}
-              onChange={(e) => onCommentChange(e.target.value)}
-              placeholder={hasSlipped ? "What happened?" : "Reflection..."}
-              rows={2}
-              className="
-                w-full bg-[var(--color-bg)] border border-[var(--color-line)] rounded-lg
-                px-3 py-2 text-sm text-[var(--color-text)]
-                placeholder:text-[var(--color-muted)]
-                focus:outline-none focus:border-[var(--color-accent)]
-                resize-none
-              "
-            />
-          ) : entry.comment ? (
-            <p className="text-sm text-[var(--color-muted)] italic">{entry.comment}</p>
-          ) : (
-            <p className="text-xs text-[var(--color-muted)]">No reflection</p>
-          )}
-        </div>
+        <ReflectionsArea
+          entry={entry}
+          editable={editable}
+          onAddReflection={onAddReflection}
+          placeholder={hasSlipped ? "What happened?" : "Add reflection..."}
+        />
       )}
     </div>
   );

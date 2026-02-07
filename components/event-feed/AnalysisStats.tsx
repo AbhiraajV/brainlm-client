@@ -55,15 +55,16 @@ export function AnalysisStats() {
 
   const filterLabel = filterLabels[filterValue] || 'today'
 
-  return (
-    <p className="-mt-4 text-[10px] text-[var(--color-muted)]/50 italic text-center leading-relaxed">
-      <span className="font-semibold">{stats.patterns}</span> patterns
-      {' · '}
-      <span className="font-semibold">{stats.interpretations}</span> bias-free interpretations
-      {' · '}
-      <span className="font-semibold">{stats.insights}</span> deep insights
-      {' · '}
-      <span className="font-semibold">{stats.aiCommittees}</span> AI Consortiums {filterLabel}
-    </p>
-  )
+  return null
+  // return (
+  //   <p className="-mt-4 text-[10px] text-[var(--color-muted)]/50 italic text-center leading-relaxed">
+  //     <span className="font-semibold">{stats.patterns}</span> patterns
+  //     {' · '}
+  //     <span className="font-semibold">{stats.interpretations}</span> bias-free interpretations
+  //     {' · '}
+  //     <span className="font-semibold">{stats.insights}</span> deep insights
+  //     {' · '}
+  //     <span className="font-semibold">{stats.aiCommittees}</span> AI Consortiums {filterLabel}
+  //   </p>
+  // )
 }

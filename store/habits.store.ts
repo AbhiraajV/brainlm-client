@@ -14,6 +14,7 @@ interface HabitsActions {
   updateHabit: (id: string, updates: Partial<Pick<HabitDefinition, 'name' | 'orderIndex'>>) => void;
   archiveHabit: (id: string) => void;
   unarchiveHabit: (id: string) => void;
+  deleteHabit: (id: string) => void;
   reorderHabits: (orderedIds: string[]) => void;
 }
 
@@ -110,6 +111,12 @@ export const useHabitsStore = create<HabitsStore>()(
           habits: state.habits.map((h) =>
             h.id === id ? { ...h, isArchived: false } : h
           ),
+        }));
+      },
+
+      deleteHabit: (id: string): void => {
+        set((state) => ({
+          habits: state.habits.filter((h) => h.id !== id),
         }));
       },
 

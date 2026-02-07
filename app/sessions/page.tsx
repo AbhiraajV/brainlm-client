@@ -120,8 +120,9 @@ export default function SessionsPage() {
           router.push(`/sessions/${active.id}`);
           return;
         }
-        setQuickType('diet');
-        setIsModalOpen(true);
+        const newId = createSession('Diet Tracker', 'Track meals and stay on target');
+        setTrackerType(newId, 'diet' as TrackerType);
+        router.push(`/sessions/${newId}`);
       }
     },
     {

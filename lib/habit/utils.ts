@@ -7,6 +7,7 @@ import type {
   HabitLog,
   HabitEntry,
   HabitDaySummary,
+  HabitReflection,
 } from '@/lib/sessions/types';
 
 /**
@@ -155,6 +156,19 @@ export function calculateStreak(
 }
 
 /**
+ * Format reflections for an entry (handles both legacy comment and new reflections array)
+ */
+function formatEntryReflections(entry: HabitEntry, lines: string[]): void {
+  if (entry.reflections && entry.reflections.length > 0) {
+    for (const r of entry.reflections) {
+      lines.push(`  > ${r.text}`);
+    }
+  } else if (entry.comment) {
+    lines.push(`  > ${entry.comment}`);
+  }
+}
+
+/**
  * Format habit log as human-readable text for event content.
  * Groups entries by outcome so the worker LLM clearly sees pass/fail.
  */
@@ -176,7 +190,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Completed');
     for (const entry of completed) {
       lines.push(`- ${entry.habitName} ✓`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }
@@ -185,7 +199,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Missed');
     for (const entry of missed) {
       lines.push(`- ${entry.habitName} ✗`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }
@@ -194,7 +208,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Skipped');
     for (const entry of skippedPositive) {
       lines.push(`- ${entry.habitName}`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }
@@ -208,7 +222,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Anti-Habits Maintained');
     for (const entry of maintained) {
       lines.push(`- ${entry.habitName} — Clean`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }
@@ -217,7 +231,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Anti-Habits Slipped');
     for (const entry of slipped) {
       lines.push(`- ${entry.habitName} ✗`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }
@@ -226,7 +240,7 @@ export function formatHabitLogAsText(log: HabitLog): string {
     lines.push('## Anti-Habits Skipped');
     for (const entry of skippedNegative) {
       lines.push(`- ${entry.habitName}`);
-      if (entry.comment) lines.push(`  > ${entry.comment}`);
+      formatEntryReflections(entry, lines);
     }
     lines.push('');
   }

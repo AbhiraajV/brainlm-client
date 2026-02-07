@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { useHabitHistory } from '@/hooks/useHabitHistory';
 import { useHabitsStore } from '@/store/habits.store';
 import { calculateStreak } from '@/lib/habit/utils';
@@ -49,6 +49,7 @@ export function HabitCalendarView() {
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
 
   const allHabits = useHabitsStore((s) => s.habits);
   const activeHabits = useMemo(
@@ -264,41 +265,96 @@ export function HabitCalendarView() {
                 <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Streaks</span>
               </div>
               <div className="divide-y divide-[var(--color-line)]">
-                {streakData.map(({ habit, current, best }) => (
-                  <div key={habit.id} className="flex items-center gap-3 px-5 sm:px-7 py-2.5">
-                    <span className="text-sm text-[var(--color-text)] flex-1 truncate">{habit.name}</span>
-                    {/* Mini streak grid - last 14 days */}
-                    <div className="flex gap-0.5">
-                      {Array.from({ length: 14 }, (_, i) => {
-                        const d = new Date();
-                        d.setDate(d.getDate() - (13 - i));
-                        const dateStr = d.toISOString().split('T')[0];
-                        const dayData = daysByDate.get(dateStr);
-                        const entry = dayData?.habitLog?.entries?.find((e) => e.habitId === habit.id);
+                {streakData.map(({ habit, current, best }) => {
+                  const isExpanded = expandedHabit === habit.id;
 
-                        let color = 'bg-[var(--color-line)]/30';
-                        if (entry) {
-                          const success =
-                            habit.polarity === 'positive'
-                              ? entry.status === 'done'
-                              : entry.status !== 'done';
-                          color = success ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]';
-                        }
+                  // Collect reflections from history for this habit
+                  const habitReflections = isExpanded
+                    ? days
+                        .flatMap((d) => {
+                          const entry = d.habitLog?.entries?.find((e) => e.habitId === habit.id);
+                          if (!entry) return [];
+                          // Gather from reflections array
+                          const refs = (entry.reflections || []).map((r) => ({
+                            date: d.date,
+                            text: r.text,
+                            createdAt: r.createdAt,
+                          }));
+                          // Legacy comment fallback
+                          if (refs.length === 0 && entry.comment) {
+                            refs.push({ date: d.date, text: entry.comment, createdAt: '' });
+                          }
+                          return refs;
+                        })
+                        .sort((a, b) => b.date.localeCompare(a.date))
+                    : [];
 
-                        return (
-                          <div
-                            key={dateStr}
-                            className={`w-2.5 h-2.5 rounded-sm ${color}`}
-                            title={dateStr}
-                          />
-                        );
-                      })}
+                  return (
+                    <div key={habit.id}>
+                      <button
+                        onClick={() => setExpandedHabit(isExpanded ? null : habit.id)}
+                        className="w-full flex items-center gap-3 px-5 sm:px-7 py-2.5 hover:bg-[var(--color-bg)] transition-colors"
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="w-3.5 h-3.5 text-[var(--color-muted)] flex-shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5 text-[var(--color-muted)] flex-shrink-0" />
+                        )}
+                        <span className="text-sm text-[var(--color-text)] flex-1 truncate text-left">{habit.name}</span>
+                        {/* Mini streak grid - last 14 days */}
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: 14 }, (_, i) => {
+                            const d = new Date();
+                            d.setDate(d.getDate() - (13 - i));
+                            const dateStr = d.toISOString().split('T')[0];
+                            const dayData = daysByDate.get(dateStr);
+                            const entry = dayData?.habitLog?.entries?.find((e) => e.habitId === habit.id);
+
+                            let color = 'bg-[var(--color-line)]/30';
+                            if (entry) {
+                              const success =
+                                habit.polarity === 'positive'
+                                  ? entry.status === 'done'
+                                  : entry.status !== 'done';
+                              color = success ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]';
+                            }
+
+                            return (
+                              <div
+                                key={dateStr}
+                                className={`w-2.5 h-2.5 rounded-sm ${color}`}
+                                title={dateStr}
+                              />
+                            );
+                          })}
+                        </div>
+                        <span className="text-xs text-[var(--color-muted)] whitespace-nowrap min-w-[4rem] text-right">
+                          {current > 0 ? `${current}d streak` : 'No streak'}
+                        </span>
+                      </button>
+
+                      {/* Expanded reflections */}
+                      {isExpanded && (
+                        <div className="px-5 sm:px-7 pb-3 pl-12 sm:pl-14">
+                          {habitReflections.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {habitReflections.map((r, i) => (
+                                <div key={i} className="flex items-start gap-2 text-sm">
+                                  <span className="text-[10px] text-[var(--color-muted)] whitespace-nowrap mt-0.5 min-w-[5rem]">
+                                    {new Date(r.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                  <span className="text-[var(--color-muted)] italic">{r.text}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--color-muted)]">No reflections yet</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs text-[var(--color-muted)] whitespace-nowrap min-w-[4rem] text-right">
-                      {current > 0 ? `${current}d streak` : 'No streak'}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

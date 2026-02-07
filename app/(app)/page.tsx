@@ -5,7 +5,7 @@ import { GoToSessionsButton } from "@/components/sessions";
 export default async function Page() {
     return (
         <>
-            <div className="space-y-6">
+            <div className="space-y-1.5">
                 {/* Date filter */}
                 <Suspense fallback={<div className="h-10" />}>
                     <DateRangeFilter />

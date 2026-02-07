@@ -20,8 +20,8 @@ export function DateRangeFilter() {
   const { filterValue, setFilter } = useFilterStore()
 
   return (
-    <div className="relative">
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+    <div className="-mx-5 sm:-mx-7 px-5 sm:px-7">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {filterOptions.map((option) => (
           <button
             key={option.value}

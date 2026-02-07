@@ -327,6 +327,11 @@ export interface DietLog {
 
 export type HabitPolarity = 'positive' | 'negative';
 
+export interface HabitReflection {
+  text: string;
+  createdAt: string; // ISO timestamp
+}
+
 export interface HabitDefinition {
   id: string;              // Stable UUID across days
   name: string;
@@ -341,7 +346,8 @@ export interface HabitEntry {
   habitName: string;       // Denormalized for history
   polarity: HabitPolarity; // Denormalized
   status: 'pending' | 'done' | 'skipped';
-  comment?: string;        // Plain text reflection
+  comment?: string;        // Legacy single reflection (backward compat)
+  reflections?: HabitReflection[]; // Timestamped reflections list
   checkedAt?: string;
 }
 
