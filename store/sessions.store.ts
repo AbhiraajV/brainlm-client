@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet, WorkoutLog, DietLog, HabitLog } from '@/lib/sessions/types';
+import type { Session, SessionsState, SessionsActions, SessionsStore, SessionKnowledge, SessionUnderstanding, SessionAnalysis, TrackerType, SuggestedWorkout, SuggestedDiet, WorkoutLog, DietLog, DietDayPlan, HabitLog, MealPlanEntry } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:sessions';
-const STORAGE_VERSION = 11; // Bumped for v11: HabitLog support
+const STORAGE_VERSION = 13; // Bumped for v13: todaysMealPlan support
 
 const initialState: SessionsState = {
   sessions: [],
@@ -54,6 +54,9 @@ const migrateSession = (session: Record<string, unknown>): Session => {
     masterSummary: session.masterSummary as string | undefined,
     workoutLog: session.workoutLog as WorkoutLog | undefined,
     dietLog: session.dietLog as DietLog | undefined,
+    dietDayPlan: session.dietDayPlan as DietDayPlan | undefined,
+    todaysMealPlan: session.todaysMealPlan as MealPlanEntry[] | undefined,
+    todaysMealPlanAnalysis: session.todaysMealPlanAnalysis as string | undefined,
     habitLog: session.habitLog as HabitLog | undefined,
     suggestedWorkout: session.suggestedWorkout as SuggestedWorkout | undefined,
     suggestedDiet: session.suggestedDiet as SuggestedDiet | undefined,
@@ -310,6 +313,30 @@ export const useSessionsStore = create<SessionsStore>()(
           sessions: state.sessions.map((session) =>
             session.id === sessionId
               ? { ...session, dietLog, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setDietDayPlan: (sessionId: string, plan: DietDayPlan): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, dietDayPlan: plan, updatedAt: now }
+              : session
+          ),
+        }));
+      },
+
+      setTodaysMealPlan: (sessionId: string, meals: MealPlanEntry[], analysis?: string): void => {
+        const now = new Date().toISOString();
+
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? { ...session, todaysMealPlan: meals, todaysMealPlanAnalysis: analysis, updatedAt: now }
               : session
           ),
         }));

@@ -56,13 +56,6 @@ interface SessionAnalysisInput {
     impact: string;
     direction: string;
   }[];
-  todaysPlan: {
-    summary: string;
-    items: {
-      suggestion: string;
-      rationale: string;
-    }[];
-  };
   context: string;
   userGoals?: string;
 }
@@ -267,20 +260,6 @@ function formatSessionSummary(input: CompleteSessionInput): string {
     lines.push('');
     lines.push('## Session Analysis');
     lines.push('');
-
-    // Today's plan summary
-    if (input.analysis.todaysPlan) {
-      lines.push(`**Today's Plan:** ${input.analysis.todaysPlan.summary}`);
-      if (input.analysis.todaysPlan.items.length > 0) {
-        for (const item of input.analysis.todaysPlan.items) {
-          lines.push(`- ${item.suggestion}`);
-          if (item.rationale) {
-            lines.push(`  - _${item.rationale}_`);
-          }
-        }
-      }
-      lines.push('');
-    }
 
     // Patterns
     if (input.analysis.patterns.length > 0) {

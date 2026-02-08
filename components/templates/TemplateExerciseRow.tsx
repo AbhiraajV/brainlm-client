@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { GripVertical, X, Check } from 'lucide-react';
 import type { TemplateExercise, MuscleGroup, EquipmentType, WeightUnit } from '@/lib/sessions/types';
+import { getMuscleGroupColor, formatMuscleGroup, BROAD_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
 
 interface TemplateExerciseRowProps {
   exercise: TemplateExercise;
@@ -11,40 +12,12 @@ interface TemplateExerciseRowProps {
   onDelete?: () => void;
 }
 
-// Muscle group colors
-const muscleGroupColors: Record<MuscleGroup, string> = {
-  chest: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  back: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  shoulders: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  biceps: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  triceps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  forearms: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  quadriceps: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  hamstrings: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  glutes: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  calves: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  abs: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  obliques: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  lower_back: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  traps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  lats: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  full_body: 'bg-[var(--color-line)] text-[var(--color-muted)]',
-};
-
-const muscleGroupOptions: MuscleGroup[] = [
-  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
-  'quadriceps', 'hamstrings', 'glutes', 'calves', 'abs', 'obliques',
-  'lower_back', 'traps', 'lats', 'full_body'
-];
+const muscleGroupOptions: MuscleGroup[] = BROAD_MUSCLE_GROUPS;
 
 const equipmentOptions: EquipmentType[] = [
   'barbell', 'dumbbell', 'cable', 'machine', 'bodyweight',
   'kettlebell', 'resistance_band', 'smith_machine', 'ez_bar', 'trap_bar', 'other'
 ];
-
-function formatMuscleGroup(mg: MuscleGroup): string {
-  return mg.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-}
 
 function formatEquipment(eq: EquipmentType): string {
   return eq.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -179,7 +152,7 @@ export function TemplateExerciseRow({ exercise, editable, onUpdate, onDelete }: 
           <span className="font-medium text-sm text-[var(--color-text)] truncate">
             {exercise.exerciseName}
           </span>
-          <span className={`text-[10px] px-1.5 py-0.5 font-medium ${muscleGroupColors[exercise.muscleGroup]}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 font-medium ${getMuscleGroupColor(exercise.muscleGroup)}`}>
             {formatMuscleGroup(exercise.muscleGroup)}
           </span>
         </div>

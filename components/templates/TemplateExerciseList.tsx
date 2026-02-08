@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Search, X } from 'lucide-react';
 import { TemplateExerciseRow } from './TemplateExerciseRow';
+import { searchGlobalExercises } from '@/server/actions/exercise-resolve.actions';
 import type { TemplateExercise, MuscleGroup, EquipmentType } from '@/lib/sessions/types';
+import type { GlobalExercise } from '@/lib/gym/exercise-database';
+import { formatMuscleGroup } from '@/lib/gym/muscle-groups';
 
 interface TemplateExerciseListProps {
   exercises: TemplateExercise[];
@@ -24,128 +27,229 @@ const equipmentOptions: EquipmentType[] = [
   'kettlebell', 'resistance_band', 'smith_machine', 'ez_bar', 'trap_bar', 'other'
 ];
 
-function formatMuscleGroup(mg: MuscleGroup): string {
-  return mg.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-}
-
 function formatEquipment(eq: EquipmentType): string {
   return eq.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
-function AddExerciseForm({
+function AddExercisePicker({
   onAdd,
   onCancel
 }: {
   onAdd: (exercise: Omit<TemplateExercise, 'id' | 'orderIndex'>) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [muscleGroup, setMuscleGroup] = useState<MuscleGroup>('chest');
-  const [equipment, setEquipment] = useState<EquipmentType>('barbell');
-  const [sets, setSets] = useState('3');
-  const [reps, setReps] = useState('10');
-  const [weight, setWeight] = useState('');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<GlobalExercise[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleAdd = () => {
-    if (!name.trim()) return;
+  // Custom exercise state
+  const [customName, setCustomName] = useState('');
+  const [customMuscle, setCustomMuscle] = useState<MuscleGroup>('chest');
+  const [customEquipment, setCustomEquipment] = useState<EquipmentType>('barbell');
+  const [customSets, setCustomSets] = useState('3');
+  const [customReps, setCustomReps] = useState('10');
 
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (query.length < 2) {
+      setResults([]);
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await searchGlobalExercises(query, 15);
+        setResults(res);
+      } catch {
+        setResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 200);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  const handleSelectGlobal = (ex: GlobalExercise) => {
     onAdd({
-      exerciseName: name.trim(),
-      muscleGroup,
-      equipmentType: equipment,
-      targetSets: parseInt(sets) || 3,
-      targetReps: parseInt(reps) || 10,
-      targetWeight: weight ? parseFloat(weight) : undefined,
-      targetWeightUnit: 'kg',
+      exerciseName: ex.name,
+      exerciseRegistryId: String(ex.id),
+      muscleGroup: ex.muscleGroup,
+      equipmentType: ex.equipmentType,
+      targetSets: 3,
+      targetReps: 10,
     });
-
-    // Reset form
-    setName('');
-    setSets('3');
-    setReps('10');
-    setWeight('');
   };
 
+  const handleAddCustom = () => {
+    if (!customName.trim()) return;
+    onAdd({
+      exerciseName: customName.trim(),
+      muscleGroup: customMuscle,
+      equipmentType: customEquipment,
+      targetSets: parseInt(customSets) || 3,
+      targetReps: parseInt(customReps) || 10,
+    });
+  };
+
+  if (showCustom) {
+    return (
+      <div className="py-3 px-3 bg-[var(--color-bg)] border-t border-[var(--color-line)]">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-[var(--color-muted)]">Custom exercise</span>
+          <button
+            onClick={() => setShowCustom(false)}
+            className="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          >
+            Back to search
+          </button>
+        </div>
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={customName}
+            onChange={e => setCustomName(e.target.value)}
+            placeholder="Exercise name"
+            className="w-full px-2 py-1.5 border border-[var(--color-line)] text-sm bg-transparent rounded"
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <select
+              value={customMuscle}
+              onChange={e => setCustomMuscle(e.target.value as MuscleGroup)}
+              className="flex-1 px-2 py-1 border border-[var(--color-line)] text-xs bg-transparent rounded"
+            >
+              {muscleGroupOptions.map(mg => (
+                <option key={mg} value={mg}>{formatMuscleGroup(mg)}</option>
+              ))}
+            </select>
+            <select
+              value={customEquipment}
+              onChange={e => setCustomEquipment(e.target.value as EquipmentType)}
+              className="flex-1 px-2 py-1 border border-[var(--color-line)] text-xs bg-transparent rounded"
+            >
+              {equipmentOptions.map(eq => (
+                <option key={eq} value={eq}>{formatEquipment(eq)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={customSets}
+                onChange={e => setCustomSets(e.target.value)}
+                className="w-12 px-1.5 py-1 border border-[var(--color-line)] text-xs text-center bg-transparent rounded"
+                min="1"
+              />
+              <span className="text-xs text-[var(--color-muted)]">sets</span>
+            </div>
+            <span className="text-[var(--color-muted)]">x</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={customReps}
+                onChange={e => setCustomReps(e.target.value)}
+                className="w-12 px-1.5 py-1 border border-[var(--color-line)] text-xs text-center bg-transparent rounded"
+                min="1"
+              />
+              <span className="text-xs text-[var(--color-muted)]">reps</span>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onCancel}
+              className="px-3 py-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAddCustom}
+              disabled={!customName.trim()}
+              className="px-3 py-1 text-xs bg-[var(--color-text)] text-[var(--color-bg)] rounded hover:opacity-80 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="py-3 px-3 bg-[var(--color-bg)] border-t border-[var(--color-line)]">
-      <div className="space-y-2">
+    <div className="py-2 px-3 bg-[var(--color-bg)] border-t border-[var(--color-line)]">
+      {/* Search input */}
+      <div className="relative mb-2">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-muted)]" />
         <input
+          ref={inputRef}
           type="text"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="Exercise name"
-          className="w-full px-2 py-1.5 border border-[var(--color-line)] text-sm bg-transparent rounded"
-          autoFocus
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search exercises..."
+          className="w-full pl-7 pr-8 py-1.5 border border-[var(--color-line)] text-sm bg-transparent rounded"
         />
-        <div className="flex gap-2">
-          <select
-            value={muscleGroup}
-            onChange={e => setMuscleGroup(e.target.value as MuscleGroup)}
-            className="flex-1 px-2 py-1 border border-[var(--color-line)] text-xs bg-transparent rounded"
-          >
-            {muscleGroupOptions.map(mg => (
-              <option key={mg} value={mg}>{formatMuscleGroup(mg)}</option>
-            ))}
-          </select>
-          <select
-            value={equipment}
-            onChange={e => setEquipment(e.target.value as EquipmentType)}
-            className="flex-1 px-2 py-1 border border-[var(--color-line)] text-xs bg-transparent rounded"
-          >
-            {equipmentOptions.map(eq => (
-              <option key={eq} value={eq}>{formatEquipment(eq)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex gap-2 items-center">
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              value={sets}
-              onChange={e => setSets(e.target.value)}
-              className="w-12 px-1.5 py-1 border border-[var(--color-line)] text-xs text-center bg-transparent rounded"
-              min="1"
-            />
-            <span className="text-xs text-[var(--color-muted)]">sets</span>
-          </div>
-          <span className="text-[var(--color-muted)]">x</span>
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              value={reps}
-              onChange={e => setReps(e.target.value)}
-              className="w-12 px-1.5 py-1 border border-[var(--color-line)] text-xs text-center bg-transparent rounded"
-              min="1"
-            />
-            <span className="text-xs text-[var(--color-muted)]">reps</span>
-          </div>
-          <span className="text-[var(--color-muted)]">@</span>
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              value={weight}
-              onChange={e => setWeight(e.target.value)}
-              placeholder="—"
-              className="w-14 px-1.5 py-1 border border-[var(--color-line)] text-xs text-center bg-transparent rounded"
-            />
-            <span className="text-xs text-[var(--color-muted)]">kg</span>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
+        {query && (
           <button
-            onClick={onCancel}
-            className="px-3 py-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            onClick={() => { setQuery(''); setResults([]); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted)] hover:text-[var(--color-text)]"
           >
-            Cancel
+            <X className="w-3.5 h-3.5" />
           </button>
+        )}
+      </div>
+
+      {/* Results */}
+      <div className="max-h-48 overflow-y-auto">
+        {isSearching && (
+          <div className="py-2 text-center text-xs text-[var(--color-muted)]">Searching...</div>
+        )}
+
+        {!isSearching && results.length > 0 && results.map(ex => (
           <button
-            onClick={handleAdd}
-            disabled={!name.trim()}
-            className="px-3 py-1 text-xs bg-[var(--color-text)] text-[var(--color-bg)] rounded hover:opacity-80 disabled:opacity-50"
+            key={ex.id}
+            onClick={() => handleSelectGlobal(ex)}
+            className="flex items-center gap-2 w-full py-1.5 px-2 text-left text-sm hover:bg-[var(--color-surface)] rounded transition-colors"
           >
-            Add
+            <span className="flex-1 truncate text-[var(--color-text)]">{ex.name}</span>
+            <span className="text-[10px] text-[var(--color-muted)] shrink-0">
+              {formatMuscleGroup(ex.muscleGroup)} / {formatEquipment(ex.equipmentType)}
+            </span>
           </button>
-        </div>
+        ))}
+
+        {!isSearching && query.length >= 2 && results.length === 0 && (
+          <div className="py-2 text-center text-xs text-[var(--color-muted)]">
+            No matches found
+          </div>
+        )}
+      </div>
+
+      {/* Footer actions */}
+      <div className="flex items-center justify-between pt-2 border-t border-[var(--color-line)] mt-2">
+        <button
+          onClick={() => setShowCustom(true)}
+          className="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+        >
+          + Custom exercise
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -191,7 +295,7 @@ export function TemplateExerciseList({
       )}
 
       {isAddingExercise && onAddExercise && (
-        <AddExerciseForm
+        <AddExercisePicker
           onAdd={(exercise) => {
             onAddExercise(exercise);
             setIsAddingExercise(false);

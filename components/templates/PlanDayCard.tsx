@@ -2,33 +2,11 @@
 
 import { Moon, Activity, ChevronRight } from 'lucide-react';
 import type { PlanDay, MuscleGroup } from '@/lib/sessions/types';
+import { getMuscleGroupColor, formatMuscleGroup } from '@/lib/gym/muscle-groups';
 
 interface PlanDayCardProps {
   day: PlanDay;
   onClick?: () => void;
-}
-
-const muscleGroupColors: Record<MuscleGroup, string> = {
-  chest: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  back: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  shoulders: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  biceps: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  triceps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  forearms: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  quadriceps: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  hamstrings: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  glutes: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  calves: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  abs: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  obliques: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  lower_back: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  traps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  lats: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  full_body: 'bg-[var(--color-line)] text-[var(--color-muted)]',
-};
-
-function formatMuscleGroup(mg: MuscleGroup): string {
-  return mg.replace(/_/g, ' ');
 }
 
 export function PlanDayCard({ day, onClick }: PlanDayCardProps) {
@@ -67,7 +45,7 @@ export function PlanDayCard({ day, onClick }: PlanDayCardProps) {
           {day.targetMuscles.slice(0, 4).map((mg) => (
             <span
               key={mg}
-              className={`text-[10px] px-1.5 py-0.5 ${muscleGroupColors[mg]}`}
+              className={`text-[10px] px-1.5 py-0.5 ${getMuscleGroupColor(mg)}`}
             >
               {formatMuscleGroup(mg)}
             </span>

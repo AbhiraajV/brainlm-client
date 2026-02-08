@@ -1,19 +1,13 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Play } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTemplatesStore, usePlan, usePlanDay } from '@/store/templates.store';
-import { useSessionsStore } from '@/store/sessions.store';
 import { useHydrated } from '@/hooks/useHydrated';
 import { DayEditor } from '@/components/templates';
 import { BackButton } from '@/components/ui/BackButton';
-import { workoutFromPlanDay } from '@/lib/templates/utils';
-import type { MuscleGroup } from '@/lib/sessions/types';
-
-function formatMuscleGroup(mg: MuscleGroup): string {
-  return mg.replace(/_/g, ' ');
-}
+import { getMuscleGroupColor, formatMuscleGroup } from '@/lib/gym/muscle-groups';
 
 export default function DayEditorPage({ params }: { params: Promise<{ id: string; dayId: string }> }) {
   const { id, dayId } = use(params);
@@ -26,21 +20,8 @@ export default function DayEditorPage({ params }: { params: Promise<{ id: string
   const addPlanDayExercise = useTemplatesStore((s) => s.addPlanDayExercise);
   const updatePlanDayExercise = useTemplatesStore((s) => s.updatePlanDayExercise);
   const removePlanDayExercise = useTemplatesStore((s) => s.removePlanDayExercise);
-  const incrementPlanUsage = useTemplatesStore((s) => s.incrementPlanUsage);
 
-  const createSession = useSessionsStore((s) => s.createSession);
-  const setTrackerType = useSessionsStore((s) => s.setTrackerType);
-  const setWorkoutLog = useSessionsStore((s) => s.setWorkoutLog);
-
-  const handleStartWorkout = () => {
-    if (!plan || !day) return;
-    const sessionId = createSession(day.name, `${plan.name} - ${day.name}`);
-    setTrackerType(sessionId, 'gym');
-    const workoutLog = workoutFromPlanDay(plan, day);
-    setWorkoutLog(sessionId, workoutLog);
-    incrementPlanUsage(plan.id);
-    router.push(`/sessions/${sessionId}`);
-  };
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   if (!hydrated) {
     return (
@@ -77,47 +58,68 @@ export default function DayEditorPage({ params }: { params: Promise<{ id: string
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)]">
-      {/* Header */}
-      <header className="sticky top-0 z-10 h-12 flex items-center gap-3 px-4 border-b border-[var(--color-line)] bg-[var(--color-bg)]">
-        <button
-          onClick={() => router.push(`/templates/${id}`)}
-          className="p-1 text-[var(--color-muted)] hover:text-[var(--color-text)]"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-[var(--color-text)] truncate block">
-            {day.dayLabel}: {day.name}
-          </span>
+      {/* Compact header: back + title + collapsible details */}
+      <header className="sticky top-0 z-10 bg-[var(--color-bg)] border-b border-[var(--color-line)]">
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <button
+            onClick={() => router.push(`/templates/${id}`)}
+            className="p-1 text-[var(--color-muted)] hover:text-[var(--color-text)] shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setDetailsOpen(!detailsOpen)}
+            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+          >
+            <span className="text-[10px] font-bold text-[var(--color-lime)] uppercase shrink-0">
+              {day.dayLabel}
+            </span>
+            <span className="text-base font-bold text-[var(--color-text)] truncate">
+              {day.name}
+            </span>
+            {detailsOpen ? (
+              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-muted)] shrink-0" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-[var(--color-muted)] shrink-0" />
+            )}
+          </button>
         </div>
+
+        {/* Muscle tags — always visible */}
+        {day.targetMuscles.length > 0 && (
+          <div className="flex items-center gap-1.5 px-4 pb-2 flex-wrap">
+            {day.targetMuscles.map((mg) => (
+              <span
+                key={mg}
+                className={`text-[10px] px-1.5 py-0.5 rounded-sm ${getMuscleGroupColor(mg)}`}
+              >
+                {formatMuscleGroup(mg)}
+              </span>
+            ))}
+            {day.estimatedDuration > 0 && (
+              <span className="text-[10px] text-[var(--color-muted)] ml-1">
+                ~{day.estimatedDuration}min
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Expandable details */}
+        {detailsOpen && (
+          <div className="border-t border-[var(--color-line)] px-4 py-2 space-y-1">
+            {day.description && (
+              <p className="text-xs text-[var(--color-muted)]">{day.description}</p>
+            )}
+            {day.cardioNotes && (
+              <p className="text-xs text-[var(--color-muted)]">Cardio: {day.cardioNotes}</p>
+            )}
+            {!day.description && !day.cardioNotes && (
+              <p className="text-xs text-[var(--color-muted)]/50">No additional details</p>
+            )}
+          </div>
+        )}
       </header>
-
-      {/* Day info */}
-      <div className="px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-2 text-[11px] text-[var(--color-muted)]">
-        {day.targetMuscles.map((mg) => (
-          <span key={mg} className="px-1.5 py-0.5 border border-[var(--color-line)]">
-            {formatMuscleGroup(mg)}
-          </span>
-        ))}
-        {day.estimatedDuration > 0 && (
-          <>
-            <span className="text-[var(--color-line)]">|</span>
-            <span>~{day.estimatedDuration}min</span>
-          </>
-        )}
-        {day.cardioNotes && (
-          <>
-            <span className="text-[var(--color-line)]">|</span>
-            <span>{day.cardioNotes}</span>
-          </>
-        )}
-      </div>
-
-      {day.description && (
-        <div className="px-4 py-2 text-xs text-[var(--color-muted)] border-b border-[var(--color-line)]">
-          {day.description}
-        </div>
-      )}
 
       {/* Editor */}
       <main className="flex-1">
@@ -132,21 +134,8 @@ export default function DayEditorPage({ params }: { params: Promise<{ id: string
         />
       </main>
 
-      {/* Spacer for fixed button */}
-      <div className="h-24" />
-
-      {/* Start workout button */}
-      {day.exercises.length > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 px-4 pb-3 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)] to-transparent pt-6">
-          <button
-            onClick={handleStartWorkout}
-            className="flex items-center justify-center gap-1.5 w-full py-2.5 px-4 bg-[var(--color-lime)] text-[var(--color-bg)] font-medium text-sm hover:bg-[var(--color-lime)]/90 transition-colors"
-          >
-            <Play className="w-3.5 h-3.5" />
-            Start This Workout
-          </button>
-        </div>
-      )}
+      {/* Spacer */}
+      <div className="h-20" />
 
       <BackButton />
     </div>

@@ -31,6 +31,7 @@ model User {
   reviews              Review[]
   uomSuggestions       UOMUpdateSuggestion[]
   workerJobs           WorkerJob[]
+  googleFitConnection  GoogleFitConnection?
 
   @@index([clerkUserId])
   @@index([nextDailyReviewDue])
@@ -344,6 +345,20 @@ enum UOMDriftType {
   ADDITION
   MODIFICATION
   REMOVAL
+}
+
+model GoogleFitConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scopes       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 enum TrackedType {

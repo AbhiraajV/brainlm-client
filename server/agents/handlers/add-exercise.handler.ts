@@ -5,7 +5,8 @@
 
 import type { WorkoutLog, ExerciseEntry, MuscleGroup, EquipmentType, ExerciseTargets, ExerciseComputed } from '@/lib/sessions/types';
 import type { AddExerciseArgs } from '../gym-coach-tools';
-import { MUSCLE_GROUPS, EQUIPMENT_TYPES } from '../gym-coach-tools';
+import { EQUIPMENT_TYPES } from '../gym-coach-tools';
+import { ALL_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
 
 export interface AddExerciseResult {
   workout: WorkoutLog;
@@ -24,6 +25,7 @@ function generateExerciseId(): string {
  * Normalize muscle group - map common aliases to valid enum values
  */
 const MUSCLE_GROUP_ALIASES: Record<string, MuscleGroup> = {
+  // Broad group aliases
   'core': 'abs',
   'abdominals': 'abs',
   'abdominal': 'abs',
@@ -51,14 +53,49 @@ const MUSCLE_GROUP_ALIASES: Record<string, MuscleGroup> = {
   'lowerback': 'lower_back',
   'erectors': 'lower_back',
   'oblique': 'obliques',
+  // Sub-group aliases
+  'upper chest': 'upper_chest',
+  'mid chest': 'mid_chest',
+  'lower chest': 'lower_chest',
+  'front delt': 'front_delts',
+  'front delts': 'front_delts',
+  'anterior delt': 'front_delts',
+  'anterior delts': 'front_delts',
+  'side delt': 'side_delts',
+  'side delts': 'side_delts',
+  'lateral delt': 'side_delts',
+  'lateral delts': 'side_delts',
+  'rear delt': 'rear_delts',
+  'rear delts': 'rear_delts',
+  'posterior delt': 'rear_delts',
+  'posterior delts': 'rear_delts',
+  'long head bicep': 'biceps_long_head',
+  'short head bicep': 'biceps_short_head',
+  'long head tricep': 'triceps_long_head',
+  'lateral head tricep': 'triceps_lateral_head',
+  'medial head tricep': 'triceps_medial_head',
+  'upper traps': 'upper_traps',
+  'mid traps': 'mid_traps',
+  'lower traps': 'lower_traps',
+  'glute max': 'glute_max',
+  'gluteus maximus': 'glute_max',
+  'glute med': 'glute_medius',
+  'gluteus medius': 'glute_medius',
+  'adductor': 'adductors',
+  'inner thigh': 'adductors',
+  'gastroc': 'gastrocnemius',
+  'tibialis': 'tibialis_anterior',
+  'upper abs': 'upper_abs',
+  'lower abs': 'lower_abs',
+  'spinal erector': 'spinal_erectors',
 };
 
 function normalizeMuscleGroup(mg: string | undefined): MuscleGroup {
   if (!mg) return 'full_body';
   const lower = mg.toLowerCase().trim();
 
-  // Check if it's already a valid value
-  if (MUSCLE_GROUPS.includes(lower as typeof MUSCLE_GROUPS[number])) {
+  // Check if it's already a valid value (includes sub-groups)
+  if ((ALL_MUSCLE_GROUPS as readonly string[]).includes(lower)) {
     return lower as MuscleGroup;
   }
 

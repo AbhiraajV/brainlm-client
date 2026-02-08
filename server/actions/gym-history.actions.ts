@@ -3,7 +3,7 @@
 import { requireUser } from "@/server/auth";
 import { prisma } from "@/server/prisma/client";
 import { calculateE1RM } from "@/lib/gym/formulas";
-import type { WorkoutLog, MuscleGroup } from "@/lib/sessions/types";
+import type { WorkoutLog, MuscleGroup, WeightUnit } from "@/lib/sessions/types";
 import type { ExercisePRData } from "@/server/agents/handlers";
 
 /**
@@ -48,18 +48,23 @@ export interface WorkoutSummary {
   totalSets: number;
   totalVolume: number;
   prCount: number;
+  templateId?: string;
+  templateDayId?: string;
 }
 
 /**
  * Query the best historical PR for an exercise
  * Uses direct database queries on Event.rawJson
+ * Supports dual-lookup: exerciseRegistryId (preferred) + name fallback
  */
 export async function queryExercisePR(
-  exerciseName: string
+  exerciseName: string,
+  exerciseRegistryId?: string
 ): Promise<ExercisePRData | null> {
   const user = await requireUser();
+  const nameLower = exerciseName.toLowerCase();
 
-  // Query all past gym events with this exercise using JSONB
+  // Query all past gym events with this exercise using JSONB (dual-lookup)
   const results = await prisma.$queryRaw<Array<{
     occurredAt: Date;
     rawJson: WorkoutLog;
@@ -73,7 +78,10 @@ export async function queryExercisePR(
       AND e."rawJson" IS NOT NULL
       AND EXISTS (
         SELECT 1 FROM jsonb_array_elements(e."rawJson"->'exercises') as ex
-        WHERE lower(ex->>'exerciseName') = ${exerciseName.toLowerCase()}
+        WHERE (
+          (${exerciseRegistryId ?? ''}::text != '' AND ex->>'exerciseRegistryId' = ${exerciseRegistryId ?? ''})
+          OR lower(ex->>'exerciseName') = ${nameLower}
+        )
       )
     ORDER BY e."occurredAt" DESC
     LIMIT 50
@@ -92,7 +100,9 @@ export async function queryExercisePR(
     if (!workout?.exercises) continue;
 
     for (const exercise of workout.exercises) {
-      if (exercise.exerciseName.toLowerCase() !== exerciseName.toLowerCase()) continue;
+      const matchesId = exerciseRegistryId && exercise.exerciseRegistryId === exerciseRegistryId;
+      const matchesName = exercise.exerciseName.toLowerCase() === nameLower;
+      if (!matchesId && !matchesName) continue;
 
       for (const set of exercise.sets) {
         const e1rm = calculateE1RM(set.weight, set.actualReps);
@@ -125,12 +135,15 @@ export async function queryExercisePR(
 /**
  * Get exercise history for progress tracking
  * Returns the last N sessions where this exercise was performed
+ * Supports dual-lookup: exerciseRegistryId (preferred) + name fallback
  */
 export async function getExerciseHistory(
   exerciseName: string,
-  limit: number = 10
+  limit: number = 10,
+  exerciseRegistryId?: string
 ): Promise<ExerciseHistoryEntry[]> {
   const user = await requireUser();
+  const nameLower = exerciseName.toLowerCase();
 
   const results = await prisma.$queryRaw<Array<{
     occurredAt: Date;
@@ -145,7 +158,10 @@ export async function getExerciseHistory(
       AND e."rawJson" IS NOT NULL
       AND EXISTS (
         SELECT 1 FROM jsonb_array_elements(e."rawJson"->'exercises') as ex
-        WHERE lower(ex->>'exerciseName') = ${exerciseName.toLowerCase()}
+        WHERE (
+          (${exerciseRegistryId ?? ''}::text != '' AND ex->>'exerciseRegistryId' = ${exerciseRegistryId ?? ''})
+          OR lower(ex->>'exerciseName') = ${nameLower}
+        )
       )
     ORDER BY e."occurredAt" DESC
     LIMIT ${limit}
@@ -158,7 +174,9 @@ export async function getExerciseHistory(
     if (!workout?.exercises) continue;
 
     for (const exercise of workout.exercises) {
-      if (exercise.exerciseName.toLowerCase() !== exerciseName.toLowerCase()) continue;
+      const matchesId = exerciseRegistryId && exercise.exerciseRegistryId === exerciseRegistryId;
+      const matchesName = exercise.exerciseName.toLowerCase() === nameLower;
+      if (!matchesId && !matchesName) continue;
 
       const sets = exercise.sets.map(set => ({
         weight: set.weight,
@@ -245,7 +263,9 @@ export async function getRecentWorkouts(
       exerciseCount: workout?.exercises?.length ?? 0,
       totalSets: workout?.summary?.totalSets ?? 0,
       totalVolume: workout?.summary?.totalVolume ?? 0,
-      prCount: workout?.summary?.prCount ?? 0
+      prCount: workout?.summary?.prCount ?? 0,
+      templateId: workout?.templateId,
+      templateDayId: workout?.templateDayId,
     };
   });
 }
@@ -355,4 +375,145 @@ export async function getWeeklyVolumeByMuscle(): Promise<Partial<Record<MuscleGr
   }
 
   return volumeByMuscle;
+}
+
+// ============================================================================
+// SESSION INSIGHTS (past coaching notes from rawJson.notes)
+// ============================================================================
+
+export interface SessionInsightEntry {
+  date: string;
+  workoutName?: string;
+  insight: string;
+  exerciseNames: string[];
+}
+
+/**
+ * Get recent session insights (coaching notes) from past gym sessions.
+ * Returns insights with exercise names so they can be grouped by exercise in the prompt.
+ */
+export async function getRecentSessionInsights(
+  limit: number = 10
+): Promise<SessionInsightEntry[]> {
+  const user = await requireUser();
+
+  const results = await prisma.$queryRaw<Array<{
+    occurredAt: Date;
+    rawJson: WorkoutLog;
+  }>>`
+    SELECT e."occurredAt", e."rawJson"
+    FROM "Event" e
+    WHERE e."userId" = ${user.id}
+      AND e."trackedType" = 'GYM'
+      AND e."rawJson" IS NOT NULL
+      AND e."rawJson"->>'notes' IS NOT NULL
+      AND e."rawJson"->>'notes' != ''
+    ORDER BY e."occurredAt" DESC
+    LIMIT ${limit}
+  `;
+
+  return results.map(r => ({
+    date: r.occurredAt.toISOString().split('T')[0],
+    workoutName: r.rawJson?.workoutName,
+    insight: r.rawJson?.notes || '',
+    exerciseNames: (r.rawJson?.exercises || []).map(ex => ex.exerciseName),
+  }));
+}
+
+// ============================================================================
+// EXERCISE TARGETS FOR WORKOUT PICKER
+// ============================================================================
+
+export interface ExerciseTargetResult {
+  exerciseName: string;
+  lastSession: {
+    date: string;
+    sets: { weight: number; reps: number }[];
+  } | null;
+  suggestedTargets: {
+    weight: number;
+    weightUnit: WeightUnit;
+    reps: number;
+    sets: number;
+    rationale: string;
+    confidence: 'high' | 'medium' | 'low';
+    source: string;
+  } | null;
+}
+
+/**
+ * Get history-based targets for a list of exercises.
+ * Used by WorkoutPicker to pre-populate targets when starting from a plan day.
+ * Uses dual-lookup (registryId + name) and progressive overload logic.
+ */
+export async function getExerciseTargetsForDay(
+  exercises: Array<{ name: string; registryId?: string }>
+): Promise<ExerciseTargetResult[]> {
+  await requireUser();
+
+  const results: ExerciseTargetResult[] = [];
+
+  for (const ex of exercises) {
+    const history = await getExerciseHistory(ex.name, 5, ex.registryId);
+
+    if (history.length === 0) {
+      results.push({
+        exerciseName: ex.name,
+        lastSession: null,
+        suggestedTargets: null,
+      });
+      continue;
+    }
+
+    const lastSession = history[0];
+    const lastSets = lastSession.sets;
+
+    // Determine confidence based on session count
+    const confidence: 'high' | 'medium' | 'low' =
+      history.length >= 3 ? 'high' : history.length >= 1 ? 'medium' : 'low';
+
+    // Progressive overload logic
+    const topSet = lastSets.reduce(
+      (best, s) => (s.weight > best.weight ? s : best),
+      lastSets[0]
+    );
+
+    // Check if all reps were hit (using average reps vs target)
+    const avgReps = lastSets.reduce((sum, s) => sum + s.reps, 0) / lastSets.length;
+    const allRepsHit = avgReps >= topSet.reps;
+
+    let suggestedWeight = topSet.weight;
+    let suggestedReps = topSet.reps;
+    let rationale: string;
+
+    if (allRepsHit) {
+      // Progress: small weight increase
+      suggestedWeight = Math.round((topSet.weight + 2.5) * 2) / 2; // Round to 0.5
+      rationale = `Hit ${topSet.reps} reps at ${topSet.weight}kg — try +2.5kg`;
+    } else {
+      // Repeat same weight, aim for more reps
+      suggestedWeight = topSet.weight;
+      suggestedReps = topSet.reps;
+      rationale = `Missed reps at ${topSet.weight}kg — repeat and aim for all reps`;
+    }
+
+    results.push({
+      exerciseName: ex.name,
+      lastSession: {
+        date: lastSession.date,
+        sets: lastSession.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
+      },
+      suggestedTargets: {
+        weight: suggestedWeight,
+        weightUnit: 'kg' as WeightUnit,
+        reps: suggestedReps,
+        sets: lastSets.length || 3,
+        rationale,
+        confidence,
+        source: 'history',
+      },
+    });
+  }
+
+  return results;
 }

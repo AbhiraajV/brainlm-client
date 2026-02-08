@@ -11,7 +11,7 @@ import { useHydrated } from '@/hooks/useHydrated'
 import { createEvent } from '@/server/actions/event.actions'
 import { isStale, CACHE_CONSTANTS } from '@/lib/cache-utils'
 
-type Event = { id: string; content: string; createdAt: Date; occurredAt: Date | null }
+type Event = { id: string; content: string; createdAt: Date; occurredAt: Date | null; trackedType?: string | null }
 
 // Pending event row component with retry functionality
 function PendingEventRow({
@@ -134,6 +134,7 @@ export function EventList({
       content: e.content,
       createdAt: e.createdAt.toISOString(),
       occurredAt: e.occurredAt?.toISOString() ?? null,
+      trackedType: e.trackedType ?? null,
     }))
 
     // Only replace if cache is empty or stale
@@ -208,6 +209,7 @@ export function EventList({
           content: e.content,
           createdAt: e.createdAt.toISOString(),
           occurredAt: e.occurredAt?.toISOString() ?? null,
+          trackedType: e.trackedType ?? null,
         }))
 
         // Merge into cache (adds without replacing)
@@ -262,6 +264,7 @@ export function EventList({
         content: e.content,
         createdAt: e.createdAt.toISOString(),
         occurredAt: e.occurredAt?.toISOString() ?? null,
+        trackedType: e.trackedType ?? null,
       }))
       appendOlderEvents(eventsForCache, result.nextCursor, !!result.nextCursor)
     } catch (err) {
@@ -302,6 +305,7 @@ export function EventList({
         content: e.content,
         createdAt: e.createdAt.toISOString(),
         occurredAt: e.occurredAt?.toISOString() ?? null,
+        trackedType: e.trackedType ?? null,
       }))
     }
 
@@ -367,6 +371,7 @@ export function EventList({
               content: event.content,
               createdAt: new Date(event.createdAt),
               occurredAt: event.occurredAt ? new Date(event.occurredAt) : null,
+              trackedType: event.trackedType,
             }}
             isExpanded={expandedId === event.id}
             onToggle={() => setExpandedId(prev => prev === event.id ? null : event.id)}

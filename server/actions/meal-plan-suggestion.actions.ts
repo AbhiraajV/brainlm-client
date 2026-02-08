@@ -127,7 +127,7 @@ async function getDietContext(userId: string): Promise<DietContext> {
         let count = 0;
 
         for (const ev of dietEvents) {
-          const json = ev.rawJson as DietLog;
+          const json = ev.rawJson as unknown as DietLog;
           if (json.meals) {
             for (const meal of json.meals) {
               for (const food of meal.foods) {

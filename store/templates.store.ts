@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { WorkoutPlan, PlanDay, TemplateExercise, MuscleGroup } from '@/lib/sessions/types';
+import { useExercisesStore } from './exercises.store';
 
 const STORAGE_KEY = 'brainlm:workout-templates';
-const STORAGE_VERSION = 2;
+const STORAGE_VERSION = 3;
 
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -19,12 +20,14 @@ const generateId = (): string => {
 interface PlansState {
   plans: Record<string, WorkoutPlan>;
   planIds: string[];
+  activePlanId: string | null;
 }
 
 interface PlansActions {
   createPlan: (plan: Omit<WorkoutPlan, 'id' | 'createdAt' | 'updatedAt' | 'usageCount'>) => string;
   updatePlan: (planId: string, updates: Partial<Omit<WorkoutPlan, 'id' | 'createdAt'>>) => void;
   deletePlan: (planId: string) => void;
+  setActivePlan: (id: string | null) => void;
   updatePlanDay: (planId: string, dayId: string, updates: Partial<PlanDay>) => void;
   setPlanDayExercises: (planId: string, dayId: string, exercises: TemplateExercise[]) => void;
   addPlanDayExercise: (planId: string, dayId: string, exercise: Omit<TemplateExercise, 'id' | 'orderIndex'>) => void;
@@ -38,6 +41,7 @@ export type TemplatesStore = PlansState & PlansActions;
 const initialState: PlansState = {
   plans: {},
   planIds: [],
+  activePlanId: null,
 };
 
 const safeStorage = {
@@ -104,6 +108,7 @@ export const useTemplatesStore = create<TemplatesStore>()(
         set((state) => ({
           plans: { ...state.plans, [id]: newPlan },
           planIds: [id, ...state.planIds],
+          activePlanId: id,
         }));
 
         return id;
@@ -129,8 +134,13 @@ export const useTemplatesStore = create<TemplatesStore>()(
           return {
             plans: rest,
             planIds: state.planIds.filter((id) => id !== planId),
+            activePlanId: state.activePlanId === planId ? null : state.activePlanId,
           };
         });
+      },
+
+      setActivePlan: (id): void => {
+        set({ activePlanId: id });
       },
 
       updatePlanDay: (planId, dayId, updates): void => {
@@ -147,19 +157,35 @@ export const useTemplatesStore = create<TemplatesStore>()(
       },
 
       setPlanDayExercises: (planId, dayId, exercises): void => {
+        // Auto-resolve exercises that don't have a registry ID
+        const registry = useExercisesStore.getState();
+        const resolved = exercises.map((ex) => {
+          if (ex.exerciseRegistryId) return ex;
+          const def = registry.resolveExercise(ex.exerciseName, ex.muscleGroup, ex.equipmentType);
+          return { ...ex, exerciseRegistryId: def.id };
+        });
+
         set((state) => {
           const plan = state.plans[planId];
           if (!plan) return state;
           return {
             plans: {
               ...state.plans,
-              [planId]: updateDayInPlan(plan, dayId, (day) => ({ ...day, exercises })),
+              [planId]: updateDayInPlan(plan, dayId, (day) => ({ ...day, exercises: resolved })),
             },
           };
         });
       },
 
       addPlanDayExercise: (planId, dayId, exercise): void => {
+        // Auto-resolve registry ID if not provided
+        let registryId = exercise.exerciseRegistryId;
+        if (!registryId) {
+          const registry = useExercisesStore.getState();
+          const def = registry.resolveExercise(exercise.exerciseName, exercise.muscleGroup, exercise.equipmentType);
+          registryId = def.id;
+        }
+
         set((state) => {
           const plan = state.plans[planId];
           if (!plan) return state;
@@ -170,7 +196,7 @@ export const useTemplatesStore = create<TemplatesStore>()(
                 ...day,
                 exercises: [
                   ...day.exercises,
-                  { ...exercise, id: generateId(), orderIndex: day.exercises.length },
+                  { ...exercise, id: generateId(), orderIndex: day.exercises.length, exerciseRegistryId: registryId },
                 ],
               })),
             },
@@ -179,6 +205,18 @@ export const useTemplatesStore = create<TemplatesStore>()(
       },
 
       updatePlanDayExercise: (planId, dayId, exerciseId, updates): void => {
+        // Re-resolve registry ID if exercise name is changing
+        let resolvedUpdates = updates;
+        if (updates.exerciseName) {
+          const registry = useExercisesStore.getState();
+          const def = registry.resolveExercise(
+            updates.exerciseName,
+            updates.muscleGroup || undefined,
+            updates.equipmentType || undefined
+          );
+          resolvedUpdates = { ...updates, exerciseRegistryId: def.id };
+        }
+
         set((state) => {
           const plan = state.plans[planId];
           if (!plan) return state;
@@ -188,7 +226,7 @@ export const useTemplatesStore = create<TemplatesStore>()(
               [planId]: updateDayInPlan(plan, dayId, (day) => ({
                 ...day,
                 exercises: day.exercises.map((e) =>
-                  e.id === exerciseId ? { ...e, ...updates } : e
+                  e.id === exerciseId ? { ...e, ...resolvedUpdates } : e
                 ),
               })),
             },
@@ -240,6 +278,7 @@ export const useTemplatesStore = create<TemplatesStore>()(
       partialize: (state) => ({
         plans: state.plans,
         planIds: state.planIds,
+        activePlanId: state.activePlanId,
       }),
       migrate: (persistedState: unknown, version: number) => {
         // Version 1 was the old templates store — clear it
@@ -250,7 +289,7 @@ export const useTemplatesStore = create<TemplatesStore>()(
         if (!persistedState) return initialState;
 
         try {
-          const state = persistedState as { plans?: Record<string, unknown>; planIds?: string[] };
+          const state = persistedState as { plans?: Record<string, unknown>; planIds?: string[]; activePlanId?: string | null };
           const plans: Record<string, WorkoutPlan> = {};
           const planIds: string[] = [];
 
@@ -264,7 +303,13 @@ export const useTemplatesStore = create<TemplatesStore>()(
           }
 
           const orderedIds = state.planIds?.filter((id) => plans[id]) || planIds;
-          return { plans, planIds: orderedIds };
+
+          // v2 → v3: add activePlanId (default null)
+          const activePlanId = (version >= 3 && state.activePlanId && plans[state.activePlanId])
+            ? state.activePlanId
+            : null;
+
+          return { plans, planIds: orderedIds, activePlanId };
         } catch {
           return initialState;
         }
@@ -285,3 +330,11 @@ export const usePlanDay = (planId: string, dayId: string) =>
     const plan = state.plans[planId];
     return plan?.days.find((d) => d.id === dayId);
   });
+
+export const useActivePlanId = () =>
+  useTemplatesStore((state) => state.activePlanId);
+
+export const useActivePlan = () =>
+  useTemplatesStore((state) =>
+    state.activePlanId ? state.plans[state.activePlanId] : undefined
+  );

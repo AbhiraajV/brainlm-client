@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import type { SessionKnowledge as SessionKnowledgeType, SessionUnderstanding as SessionUnderstandingType, SessionAnalysis as SessionAnalysisType, TrackerType } from '@/lib/sessions/types';
 import { useSessionsStore } from '@/store/sessions.store';
 import { useSessionKnowledgeWithCache } from '@/hooks/useSessionKnowledgeWithCache';
 import { useSessionAnalysisWithCache } from '@/hooks/useSessionAnalysisWithCache';
+import { useDietGoalProfile } from '@/store/diet-goals.store';
 
 interface Props {
   sessionId: string;
@@ -19,6 +20,7 @@ interface Props {
   hasEvents?: boolean;
   onComplete?: () => void;
   isCompleting?: boolean;
+  gymWorkoutContext?: { workoutName: string; muscleGroups: string[]; exerciseNames: string[] } | null;
 }
 
 export function SessionInfoCard({
@@ -31,13 +33,15 @@ export function SessionInfoCard({
   isCompleted,
   hasEvents,
   onComplete,
-  isCompleting
+  isCompleting,
+  gymWorkoutContext
 }: Props) {
   const isGymSession = analysis?.sessionType === 'gym' || trackerType === 'gym';
   const displayTitle = isGymSession ? 'Gym' : title;
 
   const analyzingRef = useRef(false);
   const knowledgeFetchedRef = useRef<string | null>(null);
+  const analysisWorkoutKeyRef = useRef<string | undefined>(undefined);
   const [isLoadingKnowledge, setIsLoadingKnowledge] = useState(false);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
 
@@ -46,6 +50,21 @@ export function SessionInfoCard({
 
   const { fetchKnowledge: fetchKnowledgeWithCache } = useSessionKnowledgeWithCache();
   const { analyzeWithCache } = useSessionAnalysisWithCache();
+  const dietProfile = useDietGoalProfile();
+
+  const dietTargets = useMemo(() => {
+    if (trackerType !== 'diet' || !dietProfile) return undefined;
+    return {
+      tdee: dietProfile.tdee,
+      calories: dietProfile.targets.calories,
+      protein: dietProfile.targets.protein,
+      carbs: dietProfile.targets.carbs,
+      fat: dietProfile.targets.fat,
+      goal: dietProfile.dietGoal,
+      proteinPerKg: dietProfile.proteinPerKg,
+      weightKg: dietProfile.weightUnit === 'kg' ? dietProfile.weight : dietProfile.weight * 0.453592,
+    };
+  }, [trackerType, dietProfile]);
 
   useEffect(() => {
     if (knowledge) return;
@@ -74,7 +93,18 @@ export function SessionInfoCard({
   }, [sessionId, trackerType, knowledge, setSessionKnowledge, fetchKnowledgeWithCache]);
 
   useEffect(() => {
-    if (!knowledge || analysis || analyzingRef.current) return;
+    if (!knowledge || analyzingRef.current) return;
+
+    // For gym sessions, wait until workout is selected (gymWorkoutContext becomes non-null)
+    if (trackerType === 'gym' && gymWorkoutContext === null) return;
+
+    // Compute workout context key to detect workout selection changes
+    const currentWorkoutKey = gymWorkoutContext
+      ? `${gymWorkoutContext.workoutName}:${[...gymWorkoutContext.muscleGroups].sort().join(',')}`
+      : undefined;
+
+    // If analysis already exists and workout context hasn't changed, skip
+    if (analysis && analysisWorkoutKeyRef.current === currentWorkoutKey) return;
 
     const totalItems = knowledge.interpretations.length + knowledge.patterns.length +
                        knowledge.insights.length + knowledge.reviews.length +
@@ -82,12 +112,13 @@ export function SessionInfoCard({
     if (totalItems === 0) return;
 
     analyzingRef.current = true;
+    analysisWorkoutKeyRef.current = currentWorkoutKey;
 
     async function generateAnalysis() {
       setIsLoadingAnalysis(true);
       try {
         const effectiveType = trackerType || 'general';
-        const cachedResult = await analyzeWithCache(title, context, knowledge!, effectiveType);
+        const cachedResult = await analyzeWithCache(title, context, knowledge!, effectiveType, dietTargets, gymWorkoutContext ?? undefined);
         if (cachedResult) {
           setSessionAnalysis(sessionId, cachedResult.analysis);
         }
@@ -103,7 +134,7 @@ export function SessionInfoCard({
     return () => {
       analyzingRef.current = false;
     };
-  }, [sessionId, title, context, knowledge, analysis, trackerType, setSessionAnalysis, analyzeWithCache]);
+  }, [sessionId, title, context, knowledge, analysis, trackerType, setSessionAnalysis, analyzeWithCache, dietTargets, gymWorkoutContext]);
 
   const isLoading = isLoadingKnowledge || isLoadingAnalysis;
 

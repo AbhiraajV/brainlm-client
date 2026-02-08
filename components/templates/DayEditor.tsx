@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Zap, Loader2 } from 'lucide-react';
+import { Zap, Loader2, RefreshCw } from 'lucide-react';
 import { TemplateExerciseList } from './TemplateExerciseList';
-import type { PlanDay, TemplateExercise, WorkoutPreferences, MuscleGroup } from '@/lib/sessions/types';
+import { GeneratePromptArea, EXERCISE_GENERATION_CHIPS } from './GeneratePromptArea';
+import type { PlanDay, TemplateExercise, WorkoutPreferences } from '@/lib/sessions/types';
 import { generateDayExercises } from '@/server/actions/template-suggestion.actions';
 
 interface DayEditorProps {
@@ -27,6 +28,7 @@ export function DayEditor({
 }: DayEditorProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userInstruction, setUserInstruction] = useState('');
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -46,7 +48,8 @@ export function DayEditor({
           name: day.name,
           targetMuscles: day.targetMuscles,
           estimatedDuration: day.estimatedDuration,
-        }
+        },
+        userInstruction.trim() || undefined
       );
 
       if (genError || !exercises) {
@@ -60,6 +63,7 @@ export function DayEditor({
         muscleGroup: ex.muscleGroup,
         secondaryMuscles: ex.secondaryMuscles,
         equipmentType: ex.equipmentType,
+        exerciseRegistryId: ex.exerciseRegistryId,
         targetSets: ex.targetSets,
         targetReps: ex.targetReps,
         targetWeight: ex.targetWeight,
@@ -70,6 +74,7 @@ export function DayEditor({
       }));
 
       onSetExercises(templateExercises);
+      setUserInstruction('');
     } catch {
       setError('Failed to generate exercises');
     } finally {
@@ -79,18 +84,24 @@ export function DayEditor({
 
   if (day.exercises.length === 0 && !isGenerating) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 px-4 gap-4">
-        <p className="text-sm text-[var(--color-muted)]">No exercises yet</p>
+      <div>
+        <GeneratePromptArea
+          title="Generate Exercises"
+          subtitle={day.name}
+          helperText="Tell us your preferences and we'll create a personalized exercise list"
+          placeholder="e.g., Include bench press, no machines, focus on compounds..."
+          chips={EXERCISE_GENERATION_CHIPS}
+          value={userInstruction}
+          onChange={setUserInstruction}
+          onSubmit={handleGenerate}
+          submitLabel="Generate with AI"
+          submitIcon={<Zap className="w-4 h-4" />}
+          isLoading={isGenerating}
+          error={error}
+          variant="primary"
+        />
 
-        <button
-          onClick={handleGenerate}
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-[var(--color-lime)] text-[var(--color-bg)] hover:bg-[var(--color-lime)]/90 transition-colors"
-        >
-          <Zap className="w-4 h-4" />
-          Generate with AI
-        </button>
-
-        <div className="w-full">
+        <div className="px-4">
           <TemplateExerciseList
             exercises={[]}
             editable
@@ -99,10 +110,6 @@ export function DayEditor({
             onDeleteExercise={onDeleteExercise}
           />
         </div>
-
-        {error && (
-          <p className="text-xs text-[var(--color-coral)]">{error}</p>
-        )}
       </div>
     );
   }
@@ -129,15 +136,22 @@ export function DayEditor({
       />
 
       {day.exercises.length > 0 && (
-        <div className="px-4 py-3">
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
-          >
-            <Zap className="w-3 h-3" />
-            Regenerate
-          </button>
+        <div className="border-t border-[var(--color-line)]">
+          <GeneratePromptArea
+            title="Regenerate"
+            helperText="This will replace all current exercises"
+            placeholder="e.g., Include bench press, no machines..."
+            chips={EXERCISE_GENERATION_CHIPS}
+            value={userInstruction}
+            onChange={setUserInstruction}
+            onSubmit={handleGenerate}
+            submitLabel="Regenerate Exercises"
+            submitIcon={<RefreshCw className="w-4 h-4" />}
+            isLoading={isGenerating}
+            loadingLabel="Regenerating..."
+            error={error}
+            variant="outline"
+          />
         </div>
       )}
     </div>

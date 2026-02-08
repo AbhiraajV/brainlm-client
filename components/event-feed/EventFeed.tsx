@@ -31,7 +31,8 @@ export async function EventFeed({
       id: true,
       content: true,
       createdAt: true,
-      occurredAt: true
+      occurredAt: true,
+      trackedType: true
     }
   })
 

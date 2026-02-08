@@ -1,7 +1,7 @@
 export { TemplateCard } from './TemplateCard';
 export { TemplateExerciseRow } from './TemplateExerciseRow';
 export { TemplateExerciseList } from './TemplateExerciseList';
-export { StartWorkoutButton } from './StartWorkoutButton';
+export { GeneratePromptArea, EXERCISE_GENERATION_CHIPS, PLAN_EDIT_CHIPS } from './GeneratePromptArea';
 export { TemplateChat } from './TemplateChat';
 export { WorkoutQuestionnaire } from './WorkoutQuestionnaire';
 export { PlanCard } from './PlanCard';
@@ -9,3 +9,5 @@ export { PlanDayCard } from './PlanDayCard';
 export { PreferencesSummary } from './PreferencesSummary';
 export { MuscleFrequencyBar } from './MuscleFrequencyBar';
 export { DayEditor } from './DayEditor';
+export { ExerciseLibrary } from './ExerciseLibrary';
+export { ExerciseDetailRow } from './ExerciseDetailRow';

@@ -6,7 +6,7 @@ interface MuscleFrequencyBarProps {
   frequency: Record<string, number>;
 }
 
-const muscleBarColors: Record<MuscleGroup, string> = {
+const muscleBarColors: Partial<Record<MuscleGroup, string>> = {
   chest: 'bg-[var(--color-coral)]',
   back: 'bg-[var(--color-mint)]',
   shoulders: 'bg-[var(--color-coral)]',

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { EventInput } from "@/components/event-input";
-import { NavButtonGroup } from "@/components/ui/NavButtonGroup";
+
 import { TimezoneSync } from "@/components/TimezoneSync";
 import { requireUser } from "@/server/auth";
 
@@ -65,8 +65,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 </div>
             </div>
 
-            {/* Bottom right navigation */}
-            <NavButtonGroup />
         </div>
     );
 }

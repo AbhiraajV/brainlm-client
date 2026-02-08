@@ -16,19 +16,36 @@ import { SuggestedDiet } from '@/components/sessions/SuggestedDiet';
 import { PRCelebration } from '@/components/sessions/PRCelebration';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
 import { completeSession } from '@/server/actions/session-complete.actions';
+import { fetchRecentDietHistory } from '@/server/actions/diet-history.actions';
+import { generateDietDayPlan } from '@/server/actions/diet-daily-plan.actions';
+import { computeDietHistorySummary, formatDietHistoryForPrompt, formatDayPlanForPrompt, formatDietProfileForPrompt } from '@/lib/diet/history-utils';
 import { BackButton } from '@/components/ui/BackButton';
 import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
-import type { EventDraft, Session, TrackerType, WorkoutLog, DietLog, HabitLog, PRSummary } from '@/lib/sessions/types';
+import type { EventDraft, Session, TrackerType, WorkoutLog, DietLog, DietDayPlan, DietHistoryDay, HabitLog, PRSummary, DailyTargets } from '@/lib/sessions/types';
 import type { LastLoggedSet } from '@/server/agents/gym-coach-agent';
-import { Trash2, MessageSquare, Dumbbell, Utensils, CheckSquare, CalendarDays, Brain, Clock, Calendar, Sparkles, BarChart3, ChevronDown, ChevronRight, Loader2, ClipboardList } from 'lucide-react';
+import { DietCoachFirstMessage } from '@/components/sessions/DietCoachFirstMessage';
+import { TodaysMealPlanCard } from '@/components/sessions/TodaysMealPlanCard';
+import { generateTodaysMealPlan, type SOSContext } from '@/server/actions/diet-meal-plan.actions';
+import { Trash2, MessageSquare, Dumbbell, Utensils, CheckSquare, CalendarDays, Brain, Clock, Calendar, Sparkles, BarChart3, ChevronDown, ChevronRight, Loader2, ClipboardList, BookOpen } from 'lucide-react';
 import { useHabitsStore } from '@/store/habits.store';
+import { useDietGoalsStore } from '@/store/diet-goals.store';
 import { createEmptyHabitLog, recalculateSummary } from '@/lib/habit/utils';
+import { createEmptyDietLog } from '@/lib/diet/macros';
 import { saveHabitSession } from '@/server/actions/habit-session.actions';
 import { saveWorkoutSession } from '@/server/actions/workout-session.actions';
 import { saveDietSession } from '@/server/actions/diet-session.actions';
+import { useTemplatesStore } from '@/store/templates.store';
+import { useExercisesStore } from '@/store/exercises.store';
+import { useExerciseLibraryStore } from '@/store/exercise-library.store';
+import { getKnownExercises } from '@/server/actions/exercise-library.actions';
+import { formatPlanForPrompt } from '@/lib/templates/utils';
+import { GymStartModal } from '@/components/sessions/GymStartModal';
+import { ExerciseResolvePopup } from '@/components/sessions/ExerciseResolvePopup';
+import { WorkoutSavePrompt } from '@/components/sessions/WorkoutSavePrompt';
 import { SessionAnalysis as SessionAnalysisComponent } from '@/components/sessions/SessionAnalysis';
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
-import type { SessionKnowledge } from '@/lib/sessions/types';
+import { TabBar } from '@/components/ui/TabBar';
+import type { SessionKnowledge, ExerciseEntry, MuscleGroup, EquipmentType } from '@/lib/sessions/types';
 
 // Track in-flight suggestion requests to prevent duplicates
 const inFlightRequests = new Set<string>();
@@ -269,14 +286,36 @@ function SessionDetailInner() {
   const deleteEventDraft = useSessionsStore((s) => s.deleteEventDraft);
   const setWorkoutLog = useSessionsStore((s) => s.setWorkoutLog);
   const setDietLog = useSessionsStore((s) => s.setDietLog);
+  const setDietDayPlan = useSessionsStore((s) => s.setDietDayPlan);
+  const setTodaysMealPlan = useSessionsStore((s) => s.setTodaysMealPlan);
   const setHabitLog = useSessionsStore((s) => s.setHabitLog);
   const [isCompleting, setIsCompleting] = useState(false);
   const [prsDetected, setPrsDetected] = useState<PRSummary[]>([]);
   const [lastLoggedSet, setLastLoggedSet] = useState<LastLoggedSet | null>(null);
   const [activeTab, setActiveTab] = useState<'coach' | 'workout' | 'insights' | 'habit' | 'history'>('coach');
+  const [dietHistoryContext, setDietHistoryContext] = useState<string | null>(null);
+  const [dayPlanContext, setDayPlanContext] = useState<string | null>(null);
+  const [dietWeekHistory, setDietWeekHistory] = useState<DietHistoryDay[]>([]);
+  const [pendingRecommendation, setPendingRecommendation] = useState<DietDayPlan | null>(null);
+  const [mealPlanGenerating, setMealPlanGenerating] = useState(false);
+  const [unresolvedExercise, setUnresolvedExercise] = useState<ExerciseEntry | null>(null);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [gymWorkoutContext, setGymWorkoutContext] = useState<{ workoutName: string; muscleGroups: MuscleGroup[]; exerciseNames: string[] } | null>(null);
+  const [workoutModeChosen, setWorkoutModeChosen] = useState(false);
 
   // Today's events from local cache - always current
   const todaysEventsFromCache = useTodaysEventsFromCache();
+
+  // Compute workout plan context for plan-aware coaching
+  // Falls back to active plan if workout doesn't have a templateId
+  const planContextForCoach = (() => {
+    if (session?.trackerType !== 'gym') return undefined;
+    const store = useTemplatesStore.getState();
+    const templateId = session?.workoutLog?.templateId || store.activePlanId;
+    if (!templateId) return undefined;
+    const plan = store.plans[templateId];
+    return plan ? formatPlanForPrompt(plan) : undefined;
+  })();
 
   // Generate LLM suggestion for an event
   const generateSuggestion = useCallback(async (eventId: string, session: Session) => {
@@ -376,7 +415,11 @@ function SessionDetailInner() {
         session.analysis,  // Pass the detailed analysis for enhanced coaching
         session.workoutLog,  // Pass current workout log for gym tracker
         session.dietLog,     // Pass current diet log for diet tracker
-        lastLoggedSet ?? undefined  // Pass last logged set for "another set" context
+        lastLoggedSet ?? undefined,  // Pass last logged set for "another set" context
+        undefined,  // lastLoggedFood
+        planContextForCoach,  // Pass workout plan context for plan-aware coaching
+        dietHistoryContext ?? undefined,  // Diet history context for diet coach
+        dayPlanContext ?? undefined  // Day plan context for diet coach
       );
 
       // Debug: log raw result from server action
@@ -421,6 +464,23 @@ function SessionDetailInner() {
           prsDetected: result.prsDetected?.length ?? 0,
         });
 
+        // Resolve exercise registry IDs for any new exercises in workoutLog
+        if (workoutLog?.exercises) {
+          const registry = useExercisesStore.getState();
+          for (const ex of workoutLog.exercises) {
+            if (!ex.exerciseRegistryId) {
+              const def = registry.resolveExercise(ex.exerciseName, ex.muscleGroup, ex.equipmentType);
+              ex.exerciseRegistryId = def.id;
+            }
+          }
+
+          // Check for unresolved exercises (agent skipped search)
+          const firstUnresolved = workoutLog.exercises.find(e => e.needsResolution);
+          if (firstUnresolved) {
+            setUnresolvedExercise(firstUnresolved);
+          }
+        }
+
         // Pass structured logs to update (for diet/gym trackers)
         setEventLlmComment(
           session.id,
@@ -456,7 +516,7 @@ function SessionDetailInner() {
       inFlightRequests.delete(requestKey);
       console.log('[generateSuggestion] Request completed, removed from in-flight:', requestKey);
     }
-  }, [setEventLlmComment, setTrackerType, todaysEventsFromCache, lastLoggedSet]);
+  }, [setEventLlmComment, setTrackerType, todaysEventsFromCache, lastLoggedSet, dietHistoryContext, dayPlanContext]);
 
   // Handle retry for failed suggestions
   const handleRetry = useCallback((eventId: string) => {
@@ -510,7 +570,6 @@ function SessionDetailInner() {
             impact: c.impact,
             direction: c.direction,
           })),
-          todaysPlan: session.analysis.todaysPlan,
           context: session.analysis.context,
           userGoals: session.analysis.userGoals,
         } : undefined,
@@ -561,6 +620,137 @@ function SessionDetailInner() {
     setHabitLog(session.id, emptyLog);
   }, [hydrated, session?.id, session?.trackerType, session?.habitLog, setHabitLog]);
 
+  // Auto-initialize diet log with targets from diet goals profile
+  // If no profile exists, redirect to diet goals setup
+  useEffect(() => {
+    if (!hydrated || !session) return;
+    if (session.trackerType !== 'diet') return;
+    if (session.dietLog) return; // already initialized
+
+    const profile = useDietGoalsStore.getState().profile;
+    if (!profile?.targets) {
+      router.push('/diet-goals');
+      return;
+    }
+    const dietLog = createEmptyDietLog(profile.targets);
+    setDietLog(session.id, dietLog);
+  }, [hydrated, session?.id, session?.trackerType, session?.dietLog, setDietLog, router]);
+
+  // Fetch diet history + generate recommendation for diet sessions
+  const dietPlanInitRef = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !session) return;
+    if (session.trackerType !== 'diet') return;
+    if (dietPlanInitRef.current) return;
+
+    const profile = useDietGoalsStore.getState().profile;
+    if (!profile) return;
+
+    if (session.dietDayPlan) {
+      // Already accepted/confirmed — just build context strings
+      setDayPlanContext(formatDayPlanForPrompt(session.dietDayPlan, profile.targets));
+      setDietHistoryContext(formatDietProfileForPrompt(profile));
+      dietPlanInitRef.current = true;
+      return;
+    }
+
+    dietPlanInitRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        // 1. Fetch history (with notes)
+        const history = await fetchRecentDietHistory(14);
+        if (cancelled) return;
+
+        // 2. Store this week for the first-message component
+        setDietWeekHistory(history.slice(0, 7));
+
+        // 3. Build coach context from history
+        const summary = computeDietHistorySummary(history, profile.targets);
+        const histCtx = formatDietHistoryForPrompt(summary, profile.targets);
+        const profileCtx = formatDietProfileForPrompt(profile);
+        setDietHistoryContext(`${histCtx}\n\n${profileCtx}`);
+
+        // 4. Generate recommendation (don't auto-accept — user decides)
+        const plan = await generateDietDayPlan(profile, history.slice(0, 7));
+        if (cancelled) return;
+
+        setPendingRecommendation(plan);
+      } catch (err) {
+        console.error('[DietPlanInit] Error:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, session?.id, session?.trackerType]);
+
+  // Handle today's meal plan generation
+  const handleGenerateMealPlan = useCallback(async (preferences?: string) => {
+    if (!session || mealPlanGenerating) return;
+
+    setMealPlanGenerating(true);
+    try {
+      const profile = useDietGoalsStore.getState().profile;
+      const targets = session.dietDayPlan?.targets ?? session.dietLog?.targets ?? profile?.targets ?? { calories: 2000, protein: 150, carbs: 200, fat: 65 };
+
+      // Build SOS context if food has been logged
+      let sosContext: SOSContext | undefined;
+      if (session.dietLog && session.dietLog.meals.length > 0) {
+        const { summary, meals } = session.dietLog;
+        const now = new Date();
+        sosContext = {
+          consumedMeals: meals.map(m => ({
+            mealType: m.mealType,
+            foods: m.foods.map(f => f.name),
+            totalCalories: m.totalMacros.calories,
+            totalProtein: m.totalMacros.protein,
+            totalCarbs: m.totalMacros.carbs,
+            totalFat: m.totalMacros.fat,
+          })),
+          totalConsumed: {
+            calories: summary.progress.consumed.calories,
+            protein: summary.progress.consumed.protein,
+            carbs: summary.progress.consumed.carbs,
+            fat: summary.progress.consumed.fat,
+          },
+          remaining: {
+            calories: summary.progress.remaining.calories,
+            protein: summary.progress.remaining.protein,
+            carbs: summary.progress.remaining.carbs,
+            fat: summary.progress.remaining.fat,
+          },
+          percentages: { ...summary.progress.percentages },
+          currentTimeOfDay: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+          currentHour: now.getHours(),
+          userExplanation: preferences || undefined,
+        };
+      }
+
+      const result = await generateTodaysMealPlan(
+        {
+          allergies: profile?.allergies,
+          foodPreferences: profile?.foodPreferences,
+          mealsPerDay: profile?.mealsPerDay,
+          dietGoal: profile?.dietGoal,
+          dietStyle: profile?.dietStyle,
+        },
+        targets,
+        sosContext ? undefined : preferences,
+        sosContext
+      );
+
+      if (result.meals.length > 0) {
+        setTodaysMealPlan(session.id, result.meals, result.analysis);
+      }
+    } catch (err) {
+      console.error('[handleGenerateMealPlan] Error:', err);
+    } finally {
+      setMealPlanGenerating(false);
+    }
+  }, [session, mealPlanGenerating, setTodaysMealPlan]);
+
   // Handle habit session completion
   const handleCompleteHabitSession = async () => {
     if (!session?.habitLog || isCompleting) return;
@@ -581,9 +771,54 @@ function SessionDetailInner() {
   const handleCompleteGymSession = async () => {
     if (!session?.workoutLog || isCompleting) return;
 
+    const workout = session.workoutLog;
+
+    // Mode A: Plan-day session — always show save prompt (auto-dismisses if no diff)
+    if (workout.templateId && workout.templateDayId) {
+      setShowSavePrompt(true);
+      return;
+    }
+
+    // Mode B: Freeform session — always offer save for workouts with ≥3 exercises
+    // WorkoutSavePrompt handles Jaccard matching internally
+    if (workout.exercises.length >= 3) {
+      setShowSavePrompt(true);
+      return;
+    }
+
+    await doSaveGymSession();
+  };
+
+  const doSaveGymSession = async () => {
+    if (!session?.workoutLog) return;
+
     setIsCompleting(true);
     try {
-      await saveWorkoutSession(session.workoutLog);
+      await saveWorkoutSession(
+        session.workoutLog,
+        session.events.map(e => ({ content: e.content, llmComment: e.llmComment ?? undefined })),
+        {
+          title: session.title,
+          goal: session.sessionContext || session.analysis?.userGoals || '',
+          guide: 'Gym Coach',
+          analysis: session.analysis ? {
+            sessionType: session.analysis.sessionType,
+            relevantHistory: session.analysis.relevantHistory?.map(h => ({
+              date: h.date, event: h.event, highlight: h.highlight,
+            })),
+            patterns: session.analysis.patterns?.map(p => ({
+              name: p.name, description: p.description, trend: p.trend,
+            })),
+            correlations: session.analysis.correlations?.map(c => ({
+              factor: c.factor, impact: c.impact, direction: c.direction,
+            })),
+            context: session.analysis.context,
+            userGoals: session.analysis.userGoals,
+          } : undefined,
+        },
+      );
+      // Invalidate exercise library cache so next visit fetches fresh data
+      useExerciseLibraryStore.getState().clearLibrary();
       markSessionCompleted(session.id);
       router.push('/sessions');
     } catch (err) {
@@ -599,7 +834,29 @@ function SessionDetailInner() {
 
     setIsCompleting(true);
     try {
-      await saveDietSession(session.dietLog);
+      await saveDietSession(
+        session.dietLog,
+        session.events.map(e => ({ content: e.content, llmComment: e.llmComment ?? undefined })),
+        {
+          title: session.title,
+          goal: session.sessionContext || session.analysis?.userGoals || '',
+          guide: 'Nutrition Coach',
+          analysis: session.analysis ? {
+            sessionType: session.analysis.sessionType,
+            relevantHistory: session.analysis.relevantHistory?.map(h => ({
+              date: h.date, event: h.event, highlight: h.highlight,
+            })),
+            patterns: session.analysis.patterns?.map(p => ({
+              name: p.name, description: p.description, trend: p.trend,
+            })),
+            correlations: session.analysis.correlations?.map(c => ({
+              factor: c.factor, impact: c.impact, direction: c.direction,
+            })),
+            context: session.analysis.context,
+            userGoals: session.analysis.userGoals,
+          } : undefined,
+        },
+      );
       markSessionCompleted(session.id);
       router.push('/sessions');
     } catch (err) {
@@ -615,6 +872,18 @@ function SessionDetailInner() {
       router.replace('/sessions');
     }
   }, [hydrated, session, router]);
+
+  // Seed client exercise registry from server (ensures global IDs are available)
+  const exerciseSeedRef = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !session || session.trackerType !== 'gym') return;
+    if (exerciseSeedRef.current) return;
+    exerciseSeedRef.current = true;
+
+    getKnownExercises().then((known) => {
+      useExercisesStore.getState().seedFromServer(known);
+    }).catch(() => {});
+  }, [hydrated, session?.trackerType]);
 
   // Process pending/generating events on page load (handle return to page)
   // Serialized: process one at a time to avoid flooding the server with N parallel requests.
@@ -675,6 +944,50 @@ function SessionDetailInner() {
         />
       )}
 
+      {/* Exercise Resolution Popup */}
+      {unresolvedExercise && session?.workoutLog && (
+        <ExerciseResolvePopup
+          exercise={unresolvedExercise}
+          onResolve={(ex, globalId, name, mg, eq) => {
+            const updatedExercises = session.workoutLog!.exercises.map(e =>
+              e.id === ex.id
+                ? { ...e, exerciseName: name, globalExerciseId: globalId, muscleGroup: mg, equipmentType: eq, needsResolution: undefined }
+                : e
+            );
+            const updatedWorkout = { ...session.workoutLog!, exercises: updatedExercises, updatedAt: new Date().toISOString() };
+            setWorkoutLog(session.id, updatedWorkout);
+            // Check for next unresolved
+            const next = updatedExercises.find(e => e.needsResolution);
+            setUnresolvedExercise(next ?? null);
+          }}
+          onCreateCustom={(ex) => {
+            const updatedExercises = session.workoutLog!.exercises.map(e =>
+              e.id === ex.id ? { ...e, needsResolution: undefined } : e
+            );
+            const updatedWorkout = { ...session.workoutLog!, exercises: updatedExercises, updatedAt: new Date().toISOString() };
+            setWorkoutLog(session.id, updatedWorkout);
+            const next = updatedExercises.find(e => e.needsResolution);
+            setUnresolvedExercise(next ?? null);
+          }}
+          onDismiss={() => setUnresolvedExercise(null)}
+        />
+      )}
+
+      {/* Workout Save Prompt (template matching on completion) */}
+      {showSavePrompt && session?.workoutLog && (
+        <WorkoutSavePrompt
+          workoutLog={session.workoutLog}
+          onSave={async () => {
+            setShowSavePrompt(false);
+            await doSaveGymSession();
+          }}
+          onSkip={async () => {
+            setShowSavePrompt(false);
+            await doSaveGymSession();
+          }}
+        />
+      )}
+
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)] overflow-x-hidden">
         {/* Main content */}
         <main className={`flex-1 container-padding overflow-x-hidden ${session.trackerType === 'habit' ? 'pb-8' : 'pb-48'}`}>
@@ -701,54 +1014,40 @@ function SessionDetailInner() {
                     handleCompleteSession  // fallback for addiction/general
             }
             isCompleting={isCompleting}
+            gymWorkoutContext={
+              session.trackerType === 'gym'
+                ? (gymWorkoutContext ?? (session.workoutLog ? {
+                    workoutName: session.workoutLog.workoutName || 'Freeform',
+                    muscleGroups: session.workoutLog.muscleGroups,
+                    exerciseNames: session.workoutLog.exercises.map(e => e.exerciseName),
+                  } : null))
+                : undefined
+            }
           />
 
           {/* Habit Tracker: Two tabs (Tracker + History), no EventInput */}
           {session.trackerType === 'habit' ? (
             <>
               {/* Tab buttons */}
-              <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
-                <div className="flex">
-                  <button
-                    onClick={() => setActiveTab('habit')}
-                    className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'habit'
-                        ? 'border-purple-500 bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
-                    `}
-                  >
-                    <CheckSquare className={`w-5 h-5 ${activeTab === 'habit' ? 'text-purple-500' : 'text-[var(--color-muted)]'}`} />
-                    {session.habitLog?.entries?.length ? (
-                      <span className={`
-                        text-[10px] px-1.5 py-0.5 rounded-full
-                        ${activeTab === 'habit'
-                          ? 'bg-purple-500 text-white'
-                          : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                        }
-                      `}>
-                        {session.habitLog.summary.completedHabits}/{session.habitLog.summary.totalHabits}
-                      </span>
-                    ) : null}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('history')}
-                    className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'history'
-                        ? 'border-purple-500 bg-[var(--color-bg)]'
-                        : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                      }
-                    `}
-                  >
-                    <CalendarDays className={`w-5 h-5 ${activeTab === 'history' ? 'text-purple-500' : 'text-[var(--color-muted)]'}`} />
-                  </button>
-                </div>
+              <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] sticky top-0 z-10">
+                <TabBar
+                  tabs={[
+                    {
+                      id: 'habit',
+                      icon: <CheckSquare className="w-4 h-4" />,
+                      badge: session.habitLog?.entries?.length
+                        ? `${session.habitLog.summary.completedHabits}/${session.habitLog.summary.totalHabits}`
+                        : undefined,
+                    },
+                    {
+                      id: 'history',
+                      icon: <CalendarDays className="w-4 h-4" />,
+                    },
+                  ]}
+                  activeTab={activeTab}
+                  onTabChange={(id) => setActiveTab(id as typeof activeTab)}
+                  accentColor="rgb(168,85,247)"
+                />
               </div>
 
               {/* Tab content - full width */}
@@ -772,74 +1071,50 @@ function SessionDetailInner() {
           ) : /* Diet Tracker: Tabbed interface for Coach/Diet/Insights */
             (session.analysis?.sessionType === 'diet' || session.trackerType === 'diet') ? (
               <>
+                {/* Diet Goal Planner + Stats Links */}
+                <div className="-mx-5 sm:-mx-7 px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-2">
+                  <button
+                    onClick={() => router.push('/diet-goals')}
+                    className="px-3 py-1 text-[11px] font-bold rounded-full border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)]/10 transition-colors"
+                  >
+                    Goals
+                  </button>
+                  <button
+                    onClick={() => router.push('/diet-stats')}
+                    className="px-3 py-1 text-[11px] font-bold rounded-full border border-orange-400 text-orange-400 hover:bg-orange-400/10 transition-colors"
+                  >
+                    Stats
+                  </button>
+                  <button
+                    onClick={() => router.push('/meal-plans')}
+                    className="px-3 py-1 text-[11px] font-bold rounded-full border border-sky-400 text-sky-400 hover:bg-sky-400/10 transition-colors"
+                  >
+                    Meal Plans
+                  </button>
+                </div>
+
                 {/* Tab buttons */}
-                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
-                  <div className="flex">
-                    <button
-                      onClick={() => setActiveTab('coach')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'coach'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                      {session.events.length > 0 && (
-                        <span className={`
-                        text-[10px] px-1.5 py-0.5 rounded-full
-                        ${activeTab === 'coach'
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                          }
-                      `}>
-                          {session.events.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('workout')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'workout'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <Utensils className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                      {session.dietLog?.meals?.length ? (
-                        <span className={`
-                        text-[10px] px-1.5 py-0.5 rounded-full
-                        ${activeTab === 'workout'
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                          }
-                      `}>
-                          {session.dietLog.meals.length}
-                        </span>
-                      ) : null}
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('insights')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'insights'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    </button>
-                  </div>
+                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] sticky top-0 z-10">
+                  <TabBar
+                    tabs={[
+                      {
+                        id: 'coach',
+                        icon: <MessageSquare className="w-4 h-4" />,
+                        badge: session.events.length > 0 ? session.events.length : undefined,
+                      },
+                      {
+                        id: 'workout',
+                        icon: <Utensils className="w-4 h-4" />,
+                        badge: session.dietLog?.meals?.length || undefined,
+                      },
+                      {
+                        id: 'insights',
+                        icon: <Brain className="w-4 h-4" />,
+                      },
+                    ]}
+                    activeTab={activeTab}
+                    onTabChange={(id) => setActiveTab(id as typeof activeTab)}
+                  />
                 </div>
 
                 {/* Tab content - full width */}
@@ -871,6 +1146,70 @@ function SessionDetailInner() {
 
                   {/* Diet Tab */}
                   <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
+                    <DietCoachFirstMessage
+                      recommendation={pendingRecommendation}
+                      weekHistory={dietWeekHistory}
+                      profileTargets={useDietGoalsStore.getState().profile?.targets ?? session.dietLog?.targets ?? { calories: 2000, protein: 150, carbs: 200, fat: 65 }}
+                      alreadyAccepted={!!session.dietDayPlan}
+                      onAccept={(targets: DailyTargets) => {
+                        // Save plan to session store
+                        const plan = pendingRecommendation ?? {
+                          targets,
+                          fiberTarget: targets.fiber ?? 25,
+                          reasoning: '',
+                          adjustments: [],
+                          generatedAt: new Date().toISOString(),
+                        };
+                        setDietDayPlan(session.id, { ...plan, targets });
+                        // Update diet log targets
+                        if (session.dietLog) {
+                          setDietLog(session.id, {
+                            ...session.dietLog,
+                            targets: { ...targets },
+                            summary: { ...session.dietLog.summary, targets: { ...targets } },
+                            updatedAt: new Date().toISOString(),
+                          });
+                        }
+                        // Set coach context
+                        const profile = useDietGoalsStore.getState().profile;
+                        if (profile) {
+                          setDayPlanContext(formatDayPlanForPrompt({ ...plan, targets }, profile.targets));
+                        }
+                      }}
+                      onCustomTargets={(targets: DailyTargets) => {
+                        // Save custom plan to session store
+                        const customPlan: DietDayPlan = {
+                          targets,
+                          fiberTarget: targets.fiber ?? 25,
+                          reasoning: 'Custom targets set by user.',
+                          adjustments: [],
+                          generatedAt: new Date().toISOString(),
+                        };
+                        setDietDayPlan(session.id, customPlan);
+                        // Update diet log targets
+                        if (session.dietLog) {
+                          setDietLog(session.id, {
+                            ...session.dietLog,
+                            targets: { ...targets },
+                            summary: { ...session.dietLog.summary, targets: { ...targets } },
+                            updatedAt: new Date().toISOString(),
+                          });
+                        }
+                        // Set coach context
+                        const profile = useDietGoalsStore.getState().profile;
+                        if (profile) {
+                          setDayPlanContext(formatDayPlanForPrompt(customPlan, profile.targets));
+                        }
+                      }}
+                    />
+                    <TodaysMealPlanCard
+                      meals={session.todaysMealPlan}
+                      analysis={session.todaysMealPlanAnalysis}
+                      isGenerating={mealPlanGenerating}
+                      targetsAccepted={!!session.dietDayPlan}
+                      onGenerate={handleGenerateMealPlan}
+                      dietLog={session.dietLog}
+                    />
                     <DietLogCard
                       dietLog={session.dietLog}
                       editable={true}
@@ -937,6 +1276,29 @@ function SessionDetailInner() {
               </>
             ) : (session.analysis?.sessionType === 'gym' || session.trackerType === 'gym') ? (
               <>
+                {/* Full-screen gym start modal — blocks until user picks a path */}
+                {!session.workoutLog && session.events.length === 0 && !workoutModeChosen && (
+                  <GymStartModal
+                    sessionId={session.id}
+                    onWorkoutSelected={(log) => {
+                      setWorkoutLog(session.id, log);
+                      setGymWorkoutContext({
+                        workoutName: log.workoutName || 'Freeform',
+                        muscleGroups: log.muscleGroups,
+                        exerciseNames: log.exercises.map(e => e.exerciseName),
+                      });
+                    }}
+                    onStartFreeform={() => {
+                      setGymWorkoutContext({
+                        workoutName: 'Freeform',
+                        muscleGroups: [],
+                        exerciseNames: [],
+                      });
+                      setWorkoutModeChosen(true);
+                    }}
+                  />
+                )}
+
                 {/* Workout Planner Link */}
                 <div className="-mx-5 sm:-mx-7 px-4 py-2 border-b border-[var(--color-line)]">
                   <button
@@ -950,73 +1312,27 @@ function SessionDetailInner() {
                 </div>
 
                 {/* Tab buttons */}
-                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] border-b border-[var(--color-line)] sticky top-0 z-10">
-                  <div className="flex">
-                    <button
-                      onClick={() => setActiveTab('coach')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'coach'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <MessageSquare className={`w-5 h-5 ${activeTab === 'coach' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                      {session.events.length > 0 && (
-                        <span className={`
-                        text-[10px] px-1.5 py-0.5 rounded-full
-                        ${activeTab === 'coach'
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                          }
-                      `}>
-                          {session.events.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('workout')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'workout'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <Dumbbell className={`w-5 h-5 ${activeTab === 'workout' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                      {session.workoutLog?.exercises?.length ? (
-                        <span className={`
-                        text-[10px] px-1.5 py-0.5 rounded-full
-                        ${activeTab === 'workout'
-                            ? 'bg-[var(--color-accent)] text-white'
-                            : 'bg-[var(--color-line)] text-[var(--color-muted)]'
-                          }
-                      `}>
-                          {session.workoutLog.exercises.length}
-                        </span>
-                      ) : null}
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('insights')}
-                      className={`
-                      flex-1 flex items-center justify-center gap-1.5
-                      py-3
-                      border-b-2 transition-all duration-200
-                      ${activeTab === 'insights'
-                          ? 'border-[var(--color-accent)] bg-[var(--color-bg)]'
-                          : 'border-transparent hover:bg-[var(--color-bg)]/50'
-                        }
-                    `}
-                    >
-                      <Brain className={`w-5 h-5 ${activeTab === 'insights' ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`} />
-                    </button>
-                  </div>
+                <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] sticky top-0 z-10">
+                  <TabBar
+                    tabs={[
+                      {
+                        id: 'coach',
+                        icon: <MessageSquare className="w-4 h-4" />,
+                        badge: session.events.length > 0 ? session.events.length : undefined,
+                      },
+                      {
+                        id: 'workout',
+                        icon: <Dumbbell className="w-4 h-4" />,
+                        badge: session.workoutLog?.exercises?.length || undefined,
+                      },
+                      {
+                        id: 'insights',
+                        icon: <Brain className="w-4 h-4" />,
+                      },
+                    ]}
+                    activeTab={activeTab}
+                    onTabChange={(id) => setActiveTab(id as typeof activeTab)}
+                  />
                 </div>
 
                 {/* Tab content - full width */}

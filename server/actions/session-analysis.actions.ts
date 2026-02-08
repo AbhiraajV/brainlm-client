@@ -42,7 +42,9 @@ export async function analyzeSession(
   sessionTitle: string,
   sessionGoal: string,
   knowledge: SessionKnowledge,
-  trackerType?: TrackerType
+  trackerType?: TrackerType,
+  dietTargets?: { tdee: number; calories: number; protein: number; carbs: number; fat: number; goal: string; proteinPerKg: number; weightKg: number },
+  gymWorkoutContext?: { workoutName: string; muscleGroups: string[]; exerciseNames: string[] }
 ): Promise<SessionAnalysis | null> {
   await requireUser();
 
@@ -52,7 +54,7 @@ export async function analyzeSession(
   }
 
   // Format knowledge into structured input
-  const input = formatKnowledgeForAnalysis(sessionTitle, sessionGoal, knowledge, trackerType);
+  const input = formatKnowledgeForAnalysis(sessionTitle, sessionGoal, knowledge, trackerType, dietTargets, gymWorkoutContext);
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -122,18 +124,18 @@ export async function analyzeSession(
           direction: c.direction as 'positive' | 'negative',
           occurrences: c.occurrences as number,
         })),
-        todaysPlan: {
-          summary: parsed.todaysPlan?.summary || '',
-          items: (parsed.todaysPlan?.items || []).map((i: Record<string, unknown>) => ({
-            suggestion: i.suggestion as string,
-            rationale: i.rationale as string,
-            metrics: (i.metrics as { key: string; value: string }[]) || [],
-          })),
-        },
+        historyBriefings: (parsed.historyBriefings || []).map((b: Record<string, unknown>) => ({
+          label: b.label as string,
+          type: b.type as string,
+          fullHistory: b.fullHistory as string,
+          linkedPatterns: b.linkedPatterns as string[],
+          linkedInsights: b.linkedInsights as string[],
+          keyTakeaways: b.keyTakeaways as string,
+        })),
         context: parsed.context || '',
         userGoals: parsed.userGoals || undefined,
         userTargets: (parsed.userTargets as { key: string; value: string }[]) || undefined,
-        // New enhanced fields for detailed coaching
+        // Enhanced fields for detailed coaching
         coachBriefing: parsed.coachBriefing ? {
           userProfile: parsed.coachBriefing.userProfile as string,
           whatGoesWrong: parsed.coachBriefing.whatGoesWrong as string,
@@ -198,7 +200,7 @@ export async function analyzeSessionIncrementalStateless(
 1. Keep ALL relevant history from the previous analysis
 2. Add new events to relevantHistory with proper details
 3. Update pattern trends only if new evidence warrants changes
-4. Recalculate todaysPlan based on TODAY: ${new Date().toISOString().split('T')[0]}
+4. Update historyBriefings if new events affect any briefed exercises/days
 5. Keep coachBriefing comprehensive - update and extend, don't shorten
 6. Preserve all emotional factors, what worked before, and root causes
 7. Add new entries to these arrays if delta events reveal new patterns
@@ -282,14 +284,14 @@ ${deltaEvents.map(e => `[${e.occurredAt.toISOString()}] ${e.content}${e.rawJson 
           direction: c.direction as 'positive' | 'negative',
           occurrences: c.occurrences as number,
         })),
-        todaysPlan: {
-          summary: parsed.todaysPlan?.summary || '',
-          items: (parsed.todaysPlan?.items || []).map((i: Record<string, unknown>) => ({
-            suggestion: i.suggestion as string,
-            rationale: i.rationale as string,
-            metrics: (i.metrics as { key: string; value: string }[]) || [],
-          })),
-        },
+        historyBriefings: (parsed.historyBriefings || []).map((b: Record<string, unknown>) => ({
+          label: b.label as string,
+          type: b.type as string,
+          fullHistory: b.fullHistory as string,
+          linkedPatterns: b.linkedPatterns as string[],
+          linkedInsights: b.linkedInsights as string[],
+          keyTakeaways: b.keyTakeaways as string,
+        })),
         context: parsed.context || '',
         userGoals: parsed.userGoals || undefined,
         userTargets: (parsed.userTargets as { key: string; value: string }[]) || undefined,

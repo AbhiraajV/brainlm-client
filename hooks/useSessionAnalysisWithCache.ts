@@ -45,7 +45,9 @@ interface UseSessionAnalysisResult {
     title: string,
     context: string,
     knowledge: SessionKnowledge,
-    trackerType: TrackerType
+    trackerType: TrackerType,
+    dietTargets?: { tdee: number; calories: number; protein: number; carbs: number; fat: number; goal: string; proteinPerKg: number; weightKg: number },
+    gymWorkoutContext?: { workoutName: string; muscleGroups: string[]; exerciseNames: string[] }
   ) => Promise<{
     analysis: SessionAnalysis;
     fromCache: boolean;
@@ -62,6 +64,11 @@ function shouldInvalidateCache(
   currentBaselineHash: string | null,
   deltaEventCount: number
 ): { invalidate: boolean; reason: string } {
+  // Schema changed — old cache has todaysPlan instead of historyBriefings
+  if (!cache.analysis.historyBriefings) {
+    return { invalidate: true, reason: 'analysis schema changed (missing historyBriefings)' };
+  }
+
   // Too many delta events - incremental update unreliable
   if (deltaEventCount > MAX_DELTA_EVENTS) {
     return { invalidate: true, reason: 'too many delta events' };
@@ -97,7 +104,9 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
       title: string,
       context: string,
       knowledge: SessionKnowledge,
-      trackerType: TrackerType
+      trackerType: TrackerType,
+      dietTargets?: { tdee: number; calories: number; protein: number; carbs: number; fat: number; goal: string; proteinPerKg: number; weightKg: number },
+      gymWorkoutContext?: { workoutName: string; muscleGroups: string[]; exerciseNames: string[] }
     ): Promise<{
       analysis: SessionAnalysis;
       fromCache: boolean;
@@ -105,9 +114,15 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
     } | null> => {
       const cacheKey = trackerType;
 
+      // Compute a stable key for the current gym workout context
+      const currentWorkoutKey = gymWorkoutContext
+        ? `${gymWorkoutContext.workoutName}:${[...gymWorkoutContext.muscleGroups].sort().join(',')}`
+        : undefined;
+
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('[ANALYSIS CACHE] Starting analysis for:', trackerType);
       console.log('[ANALYSIS CACHE] Title:', title);
+      if (currentWorkoutKey) console.log('[ANALYSIS CACHE] Workout context key:', currentWorkoutKey);
 
       // Prevent duplicate requests
       if (inFlightRef.current.has(cacheKey)) {
@@ -181,9 +196,17 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
             deltaEventCount
           );
 
+          // Check if gym workout context changed (user picked a different workout day)
+          const workoutContextChanged = currentWorkoutKey !== undefined
+            && cachedAnalysis.workoutContextKey !== currentWorkoutKey;
+
           if (invalidate) {
             console.log('[ANALYSIS CACHE] ❌ Cache invalidated:', reason);
             // Fall through to full analysis
+          } else if (workoutContextChanged) {
+            console.log('[ANALYSIS CACHE] 🔄 Workout context changed:', cachedAnalysis.workoutContextKey, '→', currentWorkoutKey);
+            console.log('[ANALYSIS CACHE] Forcing full re-analysis for new workout selection');
+            // Fall through to full analysis so historyBriefings reflect the selected workout
           } else if (deltaEventCount === 0) {
             // No new events - return cached analysis (no LLM call!)
             console.log('[ANALYSIS CACHE] 🎯 CACHE HIT! No new events, returning cached analysis');
@@ -222,6 +245,7 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
                   eventCount: cachedAnalysis.eventCount + deltaEventCount,
                   baselineHash: currentBaselineHash,
                   generatedAt: new Date().toISOString(),
+                  workoutContextKey: currentWorkoutKey ?? cachedAnalysis.workoutContextKey,
                 };
 
                 setAnalysisCache(trackerType, updatedCache);
@@ -255,7 +279,7 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
         // Full analysis (no cache or cache invalidated)
         console.log('[ANALYSIS CACHE] 🌐 Doing FULL ANALYSIS for:', trackerType);
         console.log('[ANALYSIS CACHE] 💸 This will call gpt-4o (~$0.10-0.20)...');
-        const analysis = await analyzeSession(title, context, knowledge, trackerType);
+        const analysis = await analyzeSession(title, context, knowledge, trackerType, dietTargets, gymWorkoutContext);
 
         if (!analysis) {
           console.error('[ANALYSIS CACHE] ❌ Full analysis failed');
@@ -285,6 +309,7 @@ export function useSessionAnalysisWithCache(): UseSessionAnalysisResult {
           eventCount: knowledge.events.length,
           baselineHash,
           generatedAt: new Date().toISOString(),
+          workoutContextKey: currentWorkoutKey,
         };
 
         setAnalysisCache(trackerType, newCache);

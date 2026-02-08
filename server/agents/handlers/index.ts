@@ -24,6 +24,9 @@ export type { RenameExerciseResult } from './rename-exercise.handler';
 export { handleUpdateWorkout } from './update-workout.handler';
 export type { UpdateWorkoutResult } from './update-workout.handler';
 
+export { handleUpdateExerciseNotes } from './update-exercise-notes.handler';
+export type { UpdateExerciseNotesResult } from './update-exercise-notes.handler';
+
 /**
  * Diet Coach Tool Handlers
  * Export all handlers for use in the diet coach agent

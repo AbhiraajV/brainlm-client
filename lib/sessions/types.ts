@@ -16,9 +16,35 @@ export type EquipmentType =
 
 // Muscle groups
 export type MuscleGroup =
+  // === Broad groups (backward compatible) ===
   | 'chest' | 'back' | 'shoulders' | 'biceps' | 'triceps' | 'forearms'
   | 'quadriceps' | 'hamstrings' | 'glutes' | 'calves' | 'abs' | 'obliques'
-  | 'lower_back' | 'traps' | 'lats' | 'full_body';
+  | 'lower_back' | 'traps' | 'lats' | 'full_body'
+  // === Chest sub-groups ===
+  | 'upper_chest' | 'mid_chest' | 'lower_chest'
+  // === Back sub-groups ===
+  | 'upper_traps' | 'mid_traps' | 'lower_traps'
+  | 'rhomboids' | 'teres_major' | 'spinal_erectors'
+  // === Shoulder sub-groups ===
+  | 'front_delts' | 'side_delts' | 'rear_delts'
+  // === Bicep sub-groups ===
+  | 'biceps_long_head' | 'biceps_short_head' | 'brachialis'
+  // === Tricep sub-groups ===
+  | 'triceps_long_head' | 'triceps_lateral_head' | 'triceps_medial_head'
+  // === Forearm sub-groups ===
+  | 'forearm_flexors' | 'forearm_extensors' | 'brachioradialis'
+  // === Glute sub-groups ===
+  | 'glute_max' | 'glute_medius' | 'glute_minimus'
+  // === Quad sub-groups ===
+  | 'rectus_femoris' | 'vastus_lateralis' | 'vastus_medialis' | 'vastus_intermedius'
+  // === Hamstring sub-groups ===
+  | 'biceps_femoris' | 'semitendinosus' | 'semimembranosus'
+  // === Adductors ===
+  | 'adductors' | 'adductor_longus' | 'adductor_magnus' | 'adductor_brevis' | 'gracilis'
+  // === Calf sub-groups ===
+  | 'gastrocnemius' | 'soleus' | 'tibialis_anterior'
+  // === Core sub-groups ===
+  | 'upper_abs' | 'lower_abs' | 'transverse_abdominis';
 
 // Set types
 export type SetType =
@@ -147,6 +173,8 @@ export interface WorkoutSet {
 export interface ExerciseEntry {
   id: string;
   exerciseName: string;
+  exerciseRegistryId?: string; // Stable ID from exercise registry
+  globalExerciseId?: number;   // ID from the 2909-exercise global database
   muscleGroup: MuscleGroup;
   secondaryMuscles?: MuscleGroup[];
   equipmentType: EquipmentType;
@@ -155,6 +183,7 @@ export interface ExerciseEntry {
   orderIndex: number;
   targets?: ExerciseTargets;   // AI-predicted targets for this exercise
   computed?: ExerciseComputed; // Computed fields (populated by tool handlers)
+  needsResolution?: boolean;   // True when agent skipped search — triggers client-side popup
 }
 
 // Workout day summary
@@ -184,6 +213,8 @@ export interface WorkoutLog {
   computed?: WorkoutComputed;  // Computed fields (session-level metrics)
   templateId?: string;         // ID of template this workout was created from
   templateName?: string;       // Name of template for display
+  templateDayId?: string;      // ID of the specific plan day
+  templateDayName?: string;    // Name of the plan day (e.g. "Push Day")
 }
 
 // ============================================================================
@@ -194,6 +225,8 @@ export interface WorkoutLog {
 export interface TemplateExercise {
   id: string;
   exerciseName: string;
+  exerciseRegistryId?: string; // Stable ID from exercise registry
+  globalExerciseId?: number;   // ID from the 2909-exercise global database
   muscleGroup: MuscleGroup;
   secondaryMuscles?: MuscleGroup[];
   equipmentType: EquipmentType;
@@ -224,17 +257,17 @@ export interface WorkoutTemplate {
 // WORKOUT PLAN TYPES
 // ============================================================================
 
-export type TrainingGoal = 'weight_loss' | 'muscle_gain' | 'strength' | 'general_fitness' | 'endurance' | 'body_recomp';
-export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
-export type EquipmentAccess = 'full_gym' | 'home_gym' | 'dumbbells_only' | 'bodyweight' | 'minimal';
+export type TrainingGoal = 'weight_loss' | 'muscle_gain' | 'strength' | 'general_fitness' | 'endurance' | 'body_recomp' | 'other';
+export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced' | 'other';
+export type EquipmentAccess = 'full_gym' | 'home_gym' | 'dumbbells_only' | 'bodyweight' | 'minimal' | 'other';
 export type SplitType = 'ppl' | 'upper_lower' | 'full_body' | 'bro_split' | 'push_pull' | 'custom';
-export type CardioLevel = 'none' | 'light' | 'moderate' | 'heavy';
-export type SessionDuration = 30 | 45 | 60 | 90;
+export type CardioLevel = 'none' | 'light' | 'moderate' | 'heavy' | 'other';
+export type SessionDuration = number;
 
 export interface WorkoutPreferences {
-  trainingGoal: TrainingGoal;
+  trainingGoal: TrainingGoal | TrainingGoal[];
   experienceLevel: ExperienceLevel;
-  equipmentAccess: EquipmentAccess;
+  equipmentAccess: EquipmentAccess | EquipmentAccess[];
   daysPerWeek: number;
   sessionDuration: SessionDuration;
   focusAreas: MuscleGroup[];
@@ -243,6 +276,14 @@ export interface WorkoutPreferences {
   cardioLevel: CardioLevel;
   injuries?: string;
   additionalNotes?: string;
+  customDescriptions?: {
+    trainingGoal?: string;
+    experienceLevel?: string;
+    equipmentAccess?: string;
+    splitType?: string;
+    cardioLevel?: string;
+    sessionDuration?: string;
+  };
 }
 
 export interface PlanDay {
@@ -294,6 +335,74 @@ export interface DietPreferences {
   heightUnit?: 'cm' | 'ft';
   age?: number;
   gender?: 'male' | 'female' | 'other';
+}
+
+export interface DietGoalProfile {
+  // Body stats
+  weight: number;
+  weightUnit: 'kg' | 'lbs';
+  height: number;
+  heightUnit: 'cm' | 'ft';
+  age: number;
+  gender: 'male' | 'female' | 'other';
+  bodyFatPercent?: number;
+
+  // Activity
+  activityLevel: ActivityLevel;
+  trainingDaysPerWeek: number;
+
+  // Goals
+  dietGoal: DietGoal;
+  dietStyle: DietStyle;
+  targetWeeklyChange?: number; // kg/week — negative for loss, positive for gain, 0 for maintain
+
+  // Computed targets (output of TDEE + macro calculation)
+  tdee: number;
+  targets: DailyTargets;
+  proteinPerKg: number;
+
+  // Optional preferences
+  allergies?: string;
+  foodPreferences?: string;
+  mealsPerDay?: number;
+
+  // Meta
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
+// DIET HISTORY & DAILY PLAN TYPES
+// ============================================================================
+
+export interface DietHistoryDay {
+  date: string;
+  totalCalories: number;
+  totalProtein: number;
+  totalCarbs: number;
+  totalFat: number;
+  totalFiber?: number;
+  mealCount: number;
+  notes?: string;
+}
+
+export interface DietHistorySummary {
+  days: DietHistoryDay[];
+  avgCalories: number;
+  avgProtein: number;
+  avgCarbs: number;
+  avgFat: number;
+  weeklyTrend: 'above_target' | 'on_target' | 'below_target';
+  lastDayCalories: number | null;
+  lastDayProtein: number | null;
+}
+
+export interface DietDayPlan {
+  targets: DailyTargets;
+  fiberTarget: number;
+  reasoning: string;
+  adjustments: string[];
+  generatedAt: string;
 }
 
 export interface MealPlanFood {
@@ -632,15 +741,15 @@ export interface SessionAnalysis {
     occurrences: number;       // How many times observed
   }[];
 
-  // Today's actionable plan
-  todaysPlan: {
-    summary: string;           // Brief overview
-    items: {
-      suggestion: string;      // What to do
-      rationale: string;       // Why (based on data)
-      metrics: { key: string; value: string }[];  // Relevant numbers (weight, calories, etc.)
-    }[];
-  };
+  // Deep history briefings for the coach
+  historyBriefings?: {
+    label: string;           // "Barbell Bench Press" (gym) or "Yesterday (Feb 7)" (diet)
+    type: string;            // "exercise" | "daily_recap" | "behavioral_pattern"
+    fullHistory: string;     // Detailed raw history — every session/day with sets/weights/foods/triggers
+    linkedPatterns: string[]; // Relevant patterns with evidence from the knowledge graph
+    linkedInsights: string[]; // Relevant insights/interpretations
+    keyTakeaways: string;    // What the coach must know for TODAY's session
+  }[];
 
   // Condensed context for the coach (markdown)
   context: string;
@@ -702,6 +811,9 @@ export interface Session {
   masterSummary?: string; // Master .md content for diet/gym trackers (legacy)
   workoutLog?: WorkoutLog; // Structured workout data for gym sessions
   dietLog?: DietLog; // Structured diet data for diet sessions
+  dietDayPlan?: DietDayPlan; // AI-generated daily plan for diet sessions
+  todaysMealPlan?: MealPlanEntry[]; // AI-generated today's meal plan for diet sessions
+  todaysMealPlanAnalysis?: string; // Analysis of past patterns explaining the meal plan
   habitLog?: HabitLog; // Structured habit data for habit sessions
   suggestedWorkout?: SuggestedWorkout; // AI-suggested workout for gym sessions
   suggestedDiet?: SuggestedDiet; // AI-suggested diet for diet sessions
@@ -737,6 +849,8 @@ export interface SessionsActions {
   updateMasterSummary: (sessionId: string, summary: string) => void;
   setWorkoutLog: (sessionId: string, workoutLog: WorkoutLog) => void;
   setDietLog: (sessionId: string, dietLog: DietLog) => void;
+  setDietDayPlan: (sessionId: string, plan: DietDayPlan) => void;
+  setTodaysMealPlan: (sessionId: string, meals: MealPlanEntry[], analysis?: string) => void;
   setHabitLog: (sessionId: string, habitLog: HabitLog) => void;
   setSuggestedWorkout: (sessionId: string, workout: SuggestedWorkout) => void;
   setSuggestedDiet: (sessionId: string, diet: SuggestedDiet) => void;
@@ -784,6 +898,7 @@ export interface CachedAnalysis {
   eventCount: number;           // Total events at cache time
   baselineHash: string | null;  // MD5 of user baseline
   generatedAt: string;
+  workoutContextKey?: string;   // Hash of gym workout selection (workout name + muscle groups)
 }
 
 /**
@@ -841,3 +956,83 @@ export interface CacheActions {
 }
 
 export type CacheStore = CacheState & CacheActions;
+
+// ============================================================================
+// EXERCISE LIBRARY TYPES
+// ============================================================================
+
+/** One exercise's data from a single workout session */
+export interface ExerciseSessionSnapshot {
+  eventId: string;
+  date: string;                   // ISO
+  workoutName?: string;           // "Push Day", "Upper Body", etc.
+  sets: {
+    setNumber: number;
+    setType: SetType;
+    weight: number;
+    weightUnit: WeightUnit;
+    reps: number;
+    rpe?: number;
+    rir?: number;
+    formQuality?: FormQuality;
+    volume: number;               // weight * reps
+    e1rm: number;                 // computed
+    notes?: string;
+  }[];
+  // Pre-computed per-session aggregates
+  sessionVolume: number;
+  topWeight: number;
+  topE1RM: number;
+  totalReps: number;
+  totalSets: number;
+  exerciseNotes?: string;         // Exercise-level notes from that session
+}
+
+/** Auto-generated insight about an exercise (no LLM, pattern-based) */
+export interface ExerciseInsight {
+  type: 'progress' | 'plateau' | 'form' | 'volume' | 'frequency';
+  message: string;
+  severity: 'positive' | 'neutral' | 'warning';
+}
+
+/** The exercise entity — owns all its data */
+export interface ExerciseLibraryEntry {
+  // Identity
+  exerciseName: string;
+  exerciseRegistryId?: string;
+  muscleGroup: MuscleGroup;
+  secondaryMuscles?: MuscleGroup[];
+  equipmentType: EquipmentType;
+
+  // Lifetime aggregates
+  sessionCount: number;
+  totalLifetimeSets: number;
+  totalLifetimeReps: number;
+  totalLifetimeVolume: number;
+
+  // PRs (each with date)
+  prWeight: number;
+  prWeightDate: string;
+  prE1RM: number;
+  prE1RMDate: string;
+  prVolume: number;               // best single-session volume
+  prVolumeDate: string;
+
+  // Timeline
+  lastPerformed: string;          // ISO
+  firstPerformed: string;         // ISO
+  avgDaysBetweenSessions: number | null;
+
+  // Trend
+  progressTrend: 'up' | 'down' | 'flat' | null;
+
+  // Auto-generated insights
+  insights: ExerciseInsight[];
+
+  // Full session history (newest first)
+  sessions: ExerciseSessionSnapshot[];
+
+  // Plan sources (populated client-side from workout plans)
+  planSources?: { planName: string; dayLabel: string; targetSets: number; targetReps: number; targetWeight?: number }[];
+  isPlanOnly?: boolean;
+}

@@ -17,11 +17,37 @@ interface FunctionTool {
   };
 }
 
-// Muscle groups enum values for tool definitions
+// Muscle groups enum values for tool definitions (includes granular sub-groups)
 export const MUSCLE_GROUPS = [
+  // Broad groups
   'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
   'quadriceps', 'hamstrings', 'glutes', 'calves', 'abs', 'obliques',
-  'lower_back', 'traps', 'lats', 'full_body'
+  'lower_back', 'traps', 'lats', 'full_body',
+  // Chest sub-groups
+  'upper_chest', 'mid_chest', 'lower_chest',
+  // Back sub-groups
+  'upper_traps', 'mid_traps', 'lower_traps',
+  'rhomboids', 'teres_major', 'spinal_erectors',
+  // Shoulder sub-groups
+  'front_delts', 'side_delts', 'rear_delts',
+  // Bicep sub-groups
+  'biceps_long_head', 'biceps_short_head', 'brachialis',
+  // Tricep sub-groups
+  'triceps_long_head', 'triceps_lateral_head', 'triceps_medial_head',
+  // Forearm sub-groups
+  'forearm_flexors', 'forearm_extensors', 'brachioradialis',
+  // Glute sub-groups
+  'glute_max', 'glute_medius', 'glute_minimus',
+  // Quad sub-groups
+  'rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius',
+  // Hamstring sub-groups
+  'biceps_femoris', 'semitendinosus', 'semimembranosus',
+  // Adductors
+  'adductors', 'adductor_longus', 'adductor_magnus', 'adductor_brevis', 'gracilis',
+  // Calf sub-groups
+  'gastrocnemius', 'soleus', 'tibialis_anterior',
+  // Core sub-groups
+  'upper_abs', 'lower_abs', 'transverse_abdominis',
 ] as const;
 
 // Equipment types enum values
@@ -48,14 +74,39 @@ export const GYM_COACH_TOOLS: FunctionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'search_exercise_database',
+      description: 'Search the global exercise database (2900+ exercises) to find the canonical exercise entry. MUST call this before add_exercise for any NEW exercise. Returns exercises with their globalExerciseId which you pass to add_exercise.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Exercise name or description to search for (e.g., "bench press", "lat pulldown", "cable fly")'
+          },
+          muscleGroup: {
+            type: 'string',
+            description: 'Optional broad muscle group filter to narrow results (e.g., "chest", "back", "shoulders", "quadriceps")'
+          }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_exercise',
-      description: 'Add a new exercise to the workout with targets based on user history (which you have in your context). When user says "chest day" or similar, create multiple exercises with targets.',
+      description: 'Add a new exercise to the workout with targets based on user history (which you have in your context). When user says "chest day" or similar, create multiple exercises with targets. IMPORTANT: Call search_exercise_database first and pass the globalExerciseId from the search results.',
       parameters: {
         type: 'object',
         properties: {
           exerciseName: {
             type: 'string',
             description: 'Normalized exercise name using proper capitalization and equipment prefix (e.g., "Barbell Bench Press", "Dumbbell Curl", "Cable Fly")'
+          },
+          globalExerciseId: {
+            type: 'number',
+            description: 'The ID from search_exercise_database results. Ensures correct exercise identity. Omit only for truly custom exercises not in the database.'
           },
           muscleGroup: {
             type: 'string',
@@ -314,6 +365,27 @@ export const GYM_COACH_TOOLS: FunctionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'update_exercise_notes',
+      description: 'Update the qualitative notes for an exercise in this session. Use this to record observations about form, imbalances, setup quirks, or deprecate old notes when the user reports improvement. Notes persist across sessions via the exercise library.',
+      parameters: {
+        type: 'object',
+        properties: {
+          exerciseId: {
+            type: 'string',
+            description: 'ID of the exercise from CURRENT WORKOUT STATE (e.g., "ex_xxx")'
+          },
+          notes: {
+            type: 'string',
+            description: 'The updated notes text (replaces previous). Keep brief — 1 line per observation, comma-separated if multiple.'
+          }
+        },
+        required: ['exerciseId', 'notes']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_workout_notes',
       description: 'Update the overall workout notes or name. Use when user provides general workout context.',
       parameters: {
@@ -340,8 +412,14 @@ export const GYM_COACH_TOOLS: FunctionTool[] = [
 /**
  * Tool argument types for TypeScript
  */
+export interface SearchExerciseDatabaseArgs {
+  query: string;
+  muscleGroup?: string;
+}
+
 export interface AddExerciseArgs {
   exerciseName: string;
+  globalExerciseId?: number;
   muscleGroup: typeof MUSCLE_GROUPS[number];
   secondaryMuscles?: typeof MUSCLE_GROUPS[number][];
   equipmentType: typeof EQUIPMENT_TYPES[number];
@@ -411,6 +489,11 @@ export interface GetExerciseHistoryArgs {
   limit?: number;
 }
 
+export interface UpdateExerciseNotesArgs {
+  exerciseId: string;
+  notes: string;
+}
+
 export interface UpdateWorkoutNotesArgs {
   workoutName?: string;
   notes?: string;
@@ -418,6 +501,7 @@ export interface UpdateWorkoutNotesArgs {
 }
 
 export type GymCoachToolArgs =
+  | { name: 'search_exercise_database'; args: SearchExerciseDatabaseArgs }
   | { name: 'add_exercise'; args: AddExerciseArgs }
   | { name: 'add_set'; args: AddSetArgs }
   | { name: 'update_set'; args: UpdateSetArgs }
@@ -425,4 +509,5 @@ export type GymCoachToolArgs =
   | { name: 'remove_exercise'; args: RemoveExerciseArgs }
   | { name: 'rename_exercise'; args: RenameExerciseArgs }
   | { name: 'get_exercise_history'; args: GetExerciseHistoryArgs }
+  | { name: 'update_exercise_notes'; args: UpdateExerciseNotesArgs }
   | { name: 'update_workout_notes'; args: UpdateWorkoutNotesArgs };

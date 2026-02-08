@@ -7,6 +7,7 @@ interface PlanCardProps {
   plan: WorkoutPlan;
   onClick?: () => void;
   onDelete?: () => void;
+  isActive?: boolean;
 }
 
 const splitLabels: Record<SplitType, string> = {
@@ -18,7 +19,7 @@ const splitLabels: Record<SplitType, string> = {
   custom: 'Custom',
 };
 
-export function PlanCard({ plan, onClick, onDelete }: PlanCardProps) {
+export function PlanCard({ plan, onClick, onDelete, isActive }: PlanCardProps) {
   const trainingDays = plan.days.filter((d) => !d.isRestDay).length;
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -29,13 +30,21 @@ export function PlanCard({ plan, onClick, onDelete }: PlanCardProps) {
   return (
     <div
       onClick={onClick}
-      className="flex items-center gap-3 px-4 py-3 border-b border-[var(--color-line)] hover:bg-[var(--color-surface)]/50 cursor-pointer group"
+      className={`flex items-center gap-3 px-4 py-3 border-b border-[var(--color-line)] hover:bg-[var(--color-surface)]/50 cursor-pointer group ${
+        isActive ? 'border-l-2 border-l-[var(--color-lime)]' : ''
+      }`}
     >
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium text-[var(--color-text)] block truncate">
           {plan.name}
         </span>
         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--color-muted)]">
+          {isActive && (
+            <>
+              <span className="text-[var(--color-lime)] font-medium">Active</span>
+              <span className="text-[var(--color-line)]">|</span>
+            </>
+          )}
           <span>{trainingDays} days</span>
           <span className="text-[var(--color-line)]">|</span>
           <span>{splitLabels[plan.preferences.splitType] || plan.preferences.splitType}</span>

@@ -12,10 +12,13 @@ function formatLabel(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+function asArray<T>(v: T | T[]): T[] { return Array.isArray(v) ? v : [v]; }
+
 export function PreferencesSummary({ preferences }: PreferencesSummaryProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const summary = `${formatLabel(preferences.trainingGoal)} · ${preferences.daysPerWeek} days · ${preferences.sessionDuration}min`;
+  const goalText = asArray(preferences.trainingGoal).map(formatLabel).join(', ');
+  const summary = `${goalText} · ${preferences.daysPerWeek} days · ${preferences.sessionDuration}min`;
 
   return (
     <div className="border-b border-[var(--color-line)]">
@@ -33,9 +36,13 @@ export function PreferencesSummary({ preferences }: PreferencesSummaryProps) {
 
       {isOpen && (
         <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-          <Tag label={formatLabel(preferences.trainingGoal)} />
+          {asArray(preferences.trainingGoal).map((g) => (
+            <Tag key={`goal-${g}`} label={formatLabel(g)} />
+          ))}
           <Tag label={formatLabel(preferences.experienceLevel)} />
-          <Tag label={formatLabel(preferences.equipmentAccess)} />
+          {asArray(preferences.equipmentAccess).map((e) => (
+            <Tag key={`equip-${e}`} label={formatLabel(e)} />
+          ))}
           <Tag label={`${preferences.daysPerWeek} days/wk`} />
           <Tag label={`${preferences.sessionDuration}min`} />
           <Tag label={formatLabel(preferences.splitType)} />

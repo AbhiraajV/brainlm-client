@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import type { DietLog, MealEntry, FoodItem, MealType, Macros, ServingUnit, FoodSource } from '@/lib/sessions/types';
 import { ChevronDown, ChevronRight, Flame, Beef, Wheat, Droplets, Trash2, Plus, X, Check, Edit2 } from 'lucide-react';
 import { recalculateDietSummary, generateId, getMealOrder } from '@/lib/diet/macros';
+import { TabBar } from '@/components/ui/TabBar';
 
 interface DietLogCardProps {
   dietLog: DietLog | undefined;
@@ -482,38 +483,16 @@ function MealSection({
           {/* Tabbed interface - always show */}
           <div className="mt-3 ml-6">
             {/* Tab buttons */}
-            <div className="flex border-b border-[var(--color-line)]">
-              <button
-                onClick={(e) => { e.stopPropagation(); setActiveTab('actual'); }}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                  activeTab === 'actual'
-                    ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                    : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-                }`}
-              >
-                ACTUAL
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setActiveTab('target'); }}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                  activeTab === 'target'
-                    ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                    : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-                }`}
-              >
-                TARGET
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setActiveTab('previous'); }}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                  activeTab === 'previous'
-                    ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                    : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-                }`}
-              >
-                PREV
-              </button>
-            </div>
+            <TabBar
+              tabs={[
+                { id: 'actual', label: 'ACTUAL' },
+                { id: 'target', label: 'TARGET' },
+                { id: 'previous', label: 'PREV' },
+              ]}
+              activeTab={activeTab}
+              onTabChange={(id) => setActiveTab(id as typeof activeTab)}
+              size="sm"
+            />
 
               {/* Tab content */}
               <div className="py-3">

@@ -135,6 +135,75 @@ export function calculateMacroTargets(
 }
 
 /**
+ * Smart macro recalculation — editing one field redistributes others.
+ * Editing a macro → recalculates calories from P×4 + C×4 + F×9
+ * Editing calories → redistributes P/C/F proportionally preserving ratios
+ */
+export function recalculateTargets(
+  current: DailyTargets,
+  field: 'calories' | 'protein' | 'carbs' | 'fat' | 'fiber',
+  newValue: number,
+  weightKg: number,
+  gender: string,
+): { targets: DailyTargets; proteinPerKg: number; warnings: string[] } {
+  const warnings: string[] = [];
+
+  if (field === 'fiber') {
+    return {
+      targets: { ...current, fiber: Math.max(0, newValue) },
+      proteinPerKg: Math.round((current.protein / weightKg) * 10) / 10,
+      warnings: [],
+    };
+  }
+
+  let { protein, carbs, fat } = { ...current };
+  let calories: number;
+
+  if (field === 'protein' || field === 'carbs' || field === 'fat') {
+    if (field === 'protein') protein = Math.max(0, newValue);
+    if (field === 'carbs') carbs = Math.max(0, newValue);
+    if (field === 'fat') fat = Math.max(0, newValue);
+    calories = protein * 4 + carbs * 4 + fat * 9;
+  } else {
+    calories = Math.max(0, newValue);
+    const oldCal = current.protein * 4 + current.carbs * 4 + current.fat * 9;
+    if (oldCal > 0) {
+      const proteinPct = (current.protein * 4) / oldCal;
+      const fatPct = (current.fat * 9) / oldCal;
+      protein = Math.round((calories * proteinPct) / 4);
+      fat = Math.round((calories * fatPct) / 9);
+      carbs = Math.max(0, Math.round((calories - protein * 4 - fat * 9) / 4));
+    }
+    calories = protein * 4 + carbs * 4 + fat * 9;
+  }
+
+  const proteinPerKg = Math.round((protein / weightKg) * 10) / 10;
+  const fatPerKg = Math.round((fat / weightKg) * 10) / 10;
+
+  if (calories < 1200) {
+    warnings.push('Very low calories — may not be safe long-term');
+  } else if (gender === 'male' && calories < 1500) {
+    warnings.push('Low calories for males — consider a smaller deficit');
+  }
+
+  if (fatPerKg < 0.7) {
+    warnings.push(`Low fat (${fatPerKg}g/kg) — may affect hormonal health`);
+  }
+
+  if (proteinPerKg < 1.2) {
+    warnings.push(`Low protein (${proteinPerKg}g/kg) for active individuals`);
+  } else if (proteinPerKg > 3.0) {
+    warnings.push(`Very high protein (${proteinPerKg}g/kg) — may be unnecessary`);
+  }
+
+  return {
+    targets: { calories, protein, carbs, fat, fiber: current.fiber ?? 25 },
+    proteinPerKg,
+    warnings,
+  };
+}
+
+/**
  * Extract DailyTargets from a MealPlan for use in a diet session
  */
 export function mealPlanToTargets(targets: DailyTargets): DailyTargets {

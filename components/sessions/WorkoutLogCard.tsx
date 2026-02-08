@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react';
 import type { WorkoutLog, ExerciseEntry, WorkoutSet, MuscleGroup, EquipmentType, SetType, WeightUnit, ExerciseTargets } from '@/lib/sessions/types';
 import { Dumbbell, Trophy, Target, Flame, Plus, X, Check, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
 import { calculateE1RM } from '@/lib/gym/formulas';
+import { TabBar } from '@/components/ui/TabBar';
+import { getMuscleGroupColor, formatMuscleGroup as fmtMuscle, BROAD_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
 
 interface WorkoutLogCardProps {
   workoutLog: WorkoutLog | undefined;
@@ -12,32 +14,8 @@ interface WorkoutLogCardProps {
   onUpdate?: (workout: WorkoutLog) => void;
 }
 
-// Muscle group colors - using CSS variables for dark mode
-const muscleGroupColors: Record<MuscleGroup, string> = {
-  chest: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  back: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  shoulders: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  biceps: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  triceps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  forearms: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  quadriceps: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  hamstrings: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  glutes: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  calves: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  abs: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  obliques: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  lower_back: 'bg-[var(--color-lime)]/20 text-[var(--color-lime)]',
-  traps: 'bg-[var(--color-coral)]/20 text-[var(--color-coral)]',
-  lats: 'bg-[var(--color-mint)]/20 text-[var(--color-mint)]',
-  full_body: 'bg-[var(--color-line)] text-[var(--color-muted)]',
-};
-
-// Muscle group options for select
-const muscleGroupOptions: MuscleGroup[] = [
-  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
-  'quadriceps', 'hamstrings', 'glutes', 'calves', 'abs', 'obliques',
-  'lower_back', 'traps', 'lats', 'full_body'
-];
+// Muscle group options for select (broad groups only for manual add)
+const muscleGroupOptions: MuscleGroup[] = BROAD_MUSCLE_GROUPS;
 
 // Equipment type options
 const equipmentOptions: EquipmentType[] = [
@@ -51,10 +29,9 @@ const setTypeOptions: SetType[] = [
   'rest_pause', 'to_failure', 'forced_reps', 'myo_reps', 'cluster', 'amrap'
 ];
 
-// Format muscle group for display
+// Format muscle group for display (delegated to centralized util)
 function formatMuscleGroup(mg: MuscleGroup | null | undefined): string {
-  if (mg === null || mg === undefined || typeof mg !== 'string') return 'Other';
-  return mg.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  return fmtMuscle(mg);
 }
 
 // Format equipment type for display
@@ -490,7 +467,7 @@ function ExerciseSection({
 
         {/* Metric tags row */}
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5 ml-6">
-          <span className={`text-[10px] px-1.5 py-0.5 font-medium ${muscleGroupColors[exercise.muscleGroup] || 'bg-[var(--color-line)] text-[var(--color-muted)]'}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 font-medium ${getMuscleGroupColor(exercise.muscleGroup)}`}>
             {formatMuscleGroup(exercise.muscleGroup)}
           </span>
           <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] text-[var(--color-text)] font-medium">
@@ -514,38 +491,16 @@ function ExerciseSection({
       {hasTargets ? (
         <div className="mt-3 ml-6">
           {/* Tab buttons */}
-          <div className="flex border-b border-[var(--color-line)]">
-            <button
-              onClick={(e) => { e.stopPropagation(); setActiveTab('actual'); }}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                activeTab === 'actual'
-                  ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                  : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-              }`}
-            >
-              ACTUAL
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setActiveTab('target'); }}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                activeTab === 'target'
-                  ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                  : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-              }`}
-            >
-              TARGET
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setActiveTab('previous'); }}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-all ${
-                activeTab === 'previous'
-                  ? 'border-[var(--color-text)] text-[var(--color-text)]'
-                  : 'border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]'
-              }`}
-            >
-              PREV
-            </button>
-          </div>
+          <TabBar
+            tabs={[
+              { id: 'actual', label: 'ACTUAL' },
+              { id: 'target', label: 'TARGET' },
+              { id: 'previous', label: 'PREV' },
+            ]}
+            activeTab={activeTab}
+            onTabChange={(id) => setActiveTab(id as typeof activeTab)}
+            size="sm"
+          />
 
           {/* Tab content */}
           <div className="py-3">
@@ -949,7 +904,7 @@ export function WorkoutLogCard({ workoutLog, isLoading, editable, onUpdate }: Wo
           {workoutLog.muscleGroups.length > 0 && (
             <div className="flex gap-1 mb-2 px-5 sm:px-7">
               {workoutLog.muscleGroups.filter(Boolean).slice(0, 3).map(mg => (
-                <span key={mg} className={`text-[10px] px-1.5 py-0.5 font-medium ${muscleGroupColors[mg] || 'bg-[var(--color-line)] text-[var(--color-muted)]'}`}>
+                <span key={mg} className={`text-[10px] px-1.5 py-0.5 font-medium ${getMuscleGroupColor(mg)}`}>
                   {formatMuscleGroup(mg)}
                 </span>
               ))}
@@ -994,11 +949,12 @@ export function WorkoutLogCard({ workoutLog, isLoading, editable, onUpdate }: Wo
             </div>
           )}
 
-          {/* Notes */}
+          {/* Coach note */}
           {workoutLog.notes && (
-            <p className="text-xs text-[var(--color-muted)] mt-3 px-5 sm:px-7 italic">
-              {workoutLog.notes}
-            </p>
+            <div className="px-4 py-2.5 border-t border-[var(--color-line)] mt-1">
+              <p className="text-[10px] text-[var(--color-muted)] uppercase tracking-wide mb-0.5">Coach note</p>
+              <p className="text-xs text-[var(--color-text)]">{workoutLog.notes}</p>
+            </div>
           )}
         </div>
       )}

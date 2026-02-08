@@ -89,36 +89,57 @@ function Section({
   );
 }
 
+// Collapsible briefing item
+function BriefingItem({ briefing }: { briefing: NonNullable<SessionAnalysisType['historyBriefings']>[number] }) {
+  const [expanded, setExpanded] = useState(false);
+  const typeColor = briefing.type === 'exercise'
+    ? 'text-[var(--color-accent)]'
+    : briefing.type === 'daily_recap'
+    ? 'text-[var(--color-lime)]'
+    : 'text-[var(--color-muted)]';
+
+  return (
+    <div className="p-2 bg-[var(--color-bg)] rounded border border-[var(--color-line)]">
+      <button onClick={() => setExpanded(!expanded)} className="w-full text-left flex items-center gap-2">
+        {expanded ? (
+          <ChevronDown className="w-3 h-3 text-[var(--color-muted)] shrink-0" />
+        ) : (
+          <ChevronRight className="w-3 h-3 text-[var(--color-muted)] shrink-0" />
+        )}
+        <span className="font-medium flex-1">{briefing.label}</span>
+        <span className={`text-[9px] px-1 py-0.5 rounded ${typeColor}`}>{briefing.type.replace('_', ' ')}</span>
+      </button>
+      <p className="text-[10px] text-[var(--color-muted)] mt-1 pl-5">{briefing.keyTakeaways}</p>
+      {expanded && (
+        <div className="mt-2 pl-5 space-y-2">
+          <div className="text-[10px] whitespace-pre-wrap">{briefing.fullHistory}</div>
+          {briefing.linkedPatterns.length > 0 && (
+            <div className="text-[10px] text-[var(--color-muted)]">
+              <span className="font-medium">Patterns:</span> {briefing.linkedPatterns.join(' | ')}
+            </div>
+          )}
+          {briefing.linkedInsights.length > 0 && (
+            <div className="text-[10px] text-[var(--color-muted)]">
+              <span className="font-medium">Insights:</span> {briefing.linkedInsights.join(' | ')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SessionAnalysis({ analysis }: Props) {
-  const { relevantHistory, patterns, correlations, todaysPlan, context } = analysis;
+  const { relevantHistory, patterns, correlations, historyBriefings, context } = analysis;
 
   return (
     <div className="space-y-1">
-      {/* Today's Plan - Always show first and expanded */}
-      {todaysPlan.items.length > 0 && (
-        <Section title="Today's Plan" icon={Target} defaultOpen={true}>
+      {/* History Briefings - Always show first and expanded */}
+      {historyBriefings && historyBriefings.length > 0 && (
+        <Section title="History Briefings" icon={Target} count={historyBriefings.length} defaultOpen={true}>
           <div className="space-y-2">
-            <p className="text-[var(--color-muted)] italic mb-2">{todaysPlan.summary}</p>
-            {todaysPlan.items.map((item, i) => (
-              <div
-                key={i}
-                className="p-2 bg-[var(--color-bg)] rounded border border-[var(--color-line)]"
-              >
-                <p className="font-medium">{item.suggestion}</p>
-                <p className="text-[10px] text-[var(--color-muted)] mt-1">{item.rationale}</p>
-                {item.metrics && item.metrics.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {item.metrics.map((metric, idx) => (
-                      <span
-                        key={idx}
-                        className="text-[9px] px-1.5 py-0.5 bg-[var(--color-accent)]/10 text-[var(--color-accent)] rounded"
-                      >
-                        {metric.key}: {metric.value}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {historyBriefings.map((briefing, i) => (
+              <BriefingItem key={i} briefing={briefing} />
             ))}
           </div>
         </Section>

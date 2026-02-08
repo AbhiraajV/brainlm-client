@@ -9,7 +9,7 @@ import { useEventAnalysis } from '@/hooks/useEventAnalysis'
 import { useUiStore, type FullscreenContent } from '@/store/ui.store'
 import { enqueueEvent } from '@/server/actions/event.actions'
 
-type Event = { id: string; content: string; createdAt: Date; occurredAt: Date | null }
+type Event = { id: string; content: string; createdAt: Date; occurredAt: Date | null; trackedType?: string | null }
 
 // Parse session log format
 interface SessionLogData {
@@ -49,14 +49,27 @@ function parseSessionLog(content: string): SessionLogData | null {
   return { title, goal, coach, eventCount, firstEvent }
 }
 
+// Tracker type emoji mapping
+const TRACKER_EMOJI: Record<string, string> = {
+  GYM: '\uD83C\uDFCB\uFE0F',
+  DIET: '\uD83C\uDF7D\uFE0F',
+  HABIT: '\u2705',
+  GENERAL: '\uD83D\uDCAC',
+  ADDICTION: '\uD83D\uDCAC',
+}
+
 // Session log excerpt component
 function SessionLogExcerpt({
   data,
+  trackedType,
   onClick
 }: {
   data: SessionLogData
+  trackedType?: string | null
   onClick: () => void
 }) {
+  const emoji = trackedType ? TRACKER_EMOJI[trackedType] : null
+
   return (
     <button
       onClick={onClick}
@@ -73,7 +86,11 @@ function SessionLogExcerpt({
     >
       {/* Header with icon and title */}
       <div className="flex items-start gap-2.5 mb-2">
-        <Layers className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0 mt-0.5" />
+        {emoji ? (
+          <span className="text-base flex-shrink-0 mt-0.5">{emoji}</span>
+        ) : (
+          <Layers className="w-4 h-4 text-[var(--color-accent)] flex-shrink-0 mt-0.5" />
+        )}
         <div className="flex-1 min-w-0">
           <p className="font-serif font-semibold text-[var(--color-text)] truncate">
             {data.title}
@@ -224,7 +241,7 @@ export function EventRow({
 
       {/* Event content - full width */}
       {sessionLogData ? (
-        <SessionLogExcerpt data={sessionLogData} onClick={handleOpenEvent} />
+        <SessionLogExcerpt data={sessionLogData} trackedType={event.trackedType} onClick={handleOpenEvent} />
       ) : hasRichContent ? (
         <button
           onClick={handleOpenEvent}

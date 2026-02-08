@@ -4,23 +4,13 @@ import { prisma } from '@/server/prisma/client';
 import { requireUser } from '@/server/auth';
 import { TrackedType, JobType, JobStatus } from '@prisma/client';
 import type { DietLog } from '@/lib/sessions/types';
+import { formatSessionContent, type SessionAnalysisInput } from './session-format.utils';
 
-/**
- * Format a diet log as human-readable text for the event content field
- */
-function formatDietLogAsText(dietLog: DietLog): string {
-  const lines: string[] = [`Diet Log - ${dietLog.date}`];
-
-  for (const meal of dietLog.meals) {
-    lines.push(`\n${meal.mealType.toUpperCase()}:`);
-    for (const food of meal.foods) {
-      lines.push(`  - ${food.name}: ${food.macros.calories}cal, ${food.macros.protein}g P`);
-    }
-  }
-
-  const { totalMacros } = dietLog.summary;
-  lines.push(`\nTotal: ${totalMacros.calories}cal, ${totalMacros.protein}g P, ${totalMacros.carbs}g C, ${totalMacros.fat}g F`);
-  return lines.join('\n');
+export interface SessionMeta {
+  title: string;
+  goal?: string;
+  guide?: string;
+  analysis?: SessionAnalysisInput;
 }
 
 export interface SaveDietResult {
@@ -29,17 +19,31 @@ export interface SaveDietResult {
 }
 
 /**
- * Save a completed diet session to the database
- * Creates an Event with rawJson and enqueues for interpretation
+ * Save a completed diet session to the database.
+ * Creates an Event with rawJson (structured data) and content (rich markdown
+ * in the format recognized by parseSessionLog in EventRow).
  */
-export async function saveDietSession(dietLog: DietLog): Promise<SaveDietResult> {
+export async function saveDietSession(
+  dietLog: DietLog,
+  events?: { content: string; llmComment?: string }[],
+  sessionMeta?: SessionMeta,
+): Promise<SaveDietResult> {
   const user = await requireUser();
+
+  // Build rich markdown content using the shared formatter
+  const content = formatSessionContent({
+    title: sessionMeta?.title || `Diet Log - ${dietLog.date}`,
+    goal: sessionMeta?.goal,
+    guide: sessionMeta?.guide || 'Nutrition Coach',
+    events: events?.map(e => ({ content: e.content, llmComment: e.llmComment })),
+    analysis: sessionMeta?.analysis,
+  });
 
   const result = await prisma.$transaction(async (tx) => {
     const event = await tx.event.create({
       data: {
         userId: user.id,
-        content: formatDietLogAsText(dietLog),
+        content,
         occurredAt: new Date(dietLog.date),
         rawJson: dietLog as object,
         trackedType: TrackedType.DIET,

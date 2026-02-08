@@ -4,6 +4,7 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/test(.*)',  // Test routes for development
+  '/api/google-fit/callback',
 ])
 
 export default clerkMiddleware(async (auth, req) => {

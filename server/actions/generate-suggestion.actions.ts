@@ -689,66 +689,8 @@ function formatKnowledgeForWorkout(
     sections.push('');
   }
 
-  // If analysis exists with todaysPlan, validate it against the code-computed rotation
-  if (analysis?.todaysPlan) {
-    // Detect muscle from analysis summary using the same broad mapping
-    const analysisMuscle = detectMuscleGroupFromSummary(analysis.todaysPlan.summary);
-
-    // Determine if the analysis agrees with the code-computed rotation
-    const analysisMatchesRotation =
-      !computedNextMuscle ||
-      analysisMuscle === 'UNKNOWN' ||
-      analysisMuscle === computedNextMuscle;
-
-    if (!analysisMatchesRotation) {
-      // Analysis conflicts with code-computed rotation → OVERRIDE
-      sections.push(`=== WARNING: ANALYSIS OVERRIDDEN BY ROTATION ===`);
-      sections.push(`Analysis suggested: ${analysisMuscle}`);
-      sections.push(`Code-computed rotation says: ${computedNextMuscle}`);
-      sections.push(`USING CODE-COMPUTED ROTATION (${computedNextMuscle}).`);
-      sections.push(`The analysis was wrong — generate exercises for ${computedNextMuscle} ONLY.`);
-      sections.push('');
-    } else {
-      // Analysis agrees (or we can't tell) — use it
-      const displayMuscle = computedNextMuscle ?? analysisMuscle;
-      sections.push(`=== TODAY'S WORKOUT (PRE-DETERMINED BY ANALYSIS, CONFIRMED BY ROTATION) ===`);
-      sections.push(`MUSCLE GROUP: ${displayMuscle}`);
-      sections.push(`SUMMARY: ${analysis.todaysPlan.summary}`);
-      if (rotation) {
-        sections.push(`ROTATION CONFIRMATION: ${rotation.rotationReason}`);
-      }
-      sections.push('');
-
-      // Check if there are any metrics (weights) provided in the analysis
-      const hasMetrics = analysis.todaysPlan.items.some(item => item.metrics.length > 0);
-
-      if (analysis.todaysPlan.items.length > 0) {
-        sections.push(`EXERCISES TO INCLUDE:`);
-        for (const item of analysis.todaysPlan.items) {
-          sections.push(`- ${item.suggestion}`);
-          if (item.rationale) {
-            sections.push(`  Reason: ${item.rationale}`);
-          }
-          if (item.metrics.length > 0) {
-            const metricsStr = item.metrics.map(m => `${m.key}: ${m.value}`).join(', ');
-            sections.push(`  Targets: ${metricsStr}`);
-          }
-        }
-        sections.push('');
-      }
-
-      sections.push(`!!! CRITICAL: The muscle group above is ALREADY DETERMINED.`);
-      sections.push(`!!! DO NOT re-analyze the split pattern. Generate exercises for ${displayMuscle} ONLY.`);
-
-      // If no metrics were provided, the analysis didn't have historical data for this muscle group
-      if (!hasMetrics) {
-        sections.push(`!!! WARNING: No historical weight data found for ${displayMuscle} exercises.`);
-        sections.push(`!!! If you cannot find ${displayMuscle} exercises in HISTORICAL EVENTS, use weight: "unknown" and notes: "No previous data - start light".`);
-        sections.push(`!!! DO NOT invent weights or dates. Only use data that exists.`);
-      }
-      sections.push('');
-    }
-  } else if (computedNextMuscle) {
+  // Use code-computed rotation to determine today's muscle group
+  if (computedNextMuscle) {
     // No analysis but we have a rotation → tell the LLM what to do
     sections.push(`=== TODAY'S WORKOUT (COMPUTED FROM ROTATION) ===`);
     sections.push(`MUSCLE GROUP: ${computedNextMuscle}`);

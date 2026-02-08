@@ -4,80 +4,18 @@ import { requireUser } from "@/server/auth";
 import { prisma } from "@/server/prisma/client";
 import { JobType, JobStatus, TrackedType } from "@prisma/client";
 import type { WorkoutLog, MuscleGroup } from "@/lib/sessions/types";
+import { formatSessionContent, type SessionAnalysisInput } from "./session-format.utils";
 
 /**
  * Workout Session Actions
  * Save and load workout sessions with full rawJson storage
  */
 
-/**
- * Format a workout log as human-readable text for the event content field
- * This is used for search and display purposes
- */
-function formatWorkoutAsText(workout: WorkoutLog): string {
-  const lines: string[] = [];
-
-  // Header
-  if (workout.workoutName) {
-    lines.push(`# ${workout.workoutName}`);
-  } else {
-    lines.push(`# Workout - ${workout.date}`);
-  }
-  lines.push('');
-
-  // Muscle groups
-  if (workout.muscleGroups.length > 0) {
-    lines.push(`**Muscle Groups:** ${workout.muscleGroups.join(', ')}`);
-    lines.push('');
-  }
-
-  // Exercises
-  for (const exercise of workout.exercises) {
-    lines.push(`## ${exercise.exerciseName}`);
-    lines.push(`*${exercise.muscleGroup}${exercise.secondaryMuscles?.length ? ` + ${exercise.secondaryMuscles.join(', ')}` : ''} | ${exercise.equipmentType}*`);
-    lines.push('');
-
-    for (const set of exercise.sets) {
-      const setInfo = [
-        `Set ${set.setNumber}:`,
-        `${set.weight}${set.weightUnit}`,
-        `× ${set.actualReps} reps`
-      ];
-
-      if (set.rpe) setInfo.push(`@ RPE ${set.rpe}`);
-      if (set.rir !== undefined) setInfo.push(`(${set.rir} RIR)`);
-      if (set.setType !== 'working') setInfo.push(`[${set.setType}]`);
-      if (set.computed?.isPR) setInfo.push('🏆 PR!');
-
-      lines.push(setInfo.join(' '));
-    }
-    lines.push('');
-  }
-
-  // Summary
-  lines.push('---');
-  lines.push('### Summary');
-  lines.push(`- **Exercises:** ${workout.summary.totalExercises}`);
-  lines.push(`- **Sets:** ${workout.summary.totalSets}`);
-  lines.push(`- **Total Volume:** ${workout.summary.totalVolume.toLocaleString()} ${workout.summary.totalVolumeUnit}`);
-  if (workout.summary.prCount > 0) {
-    lines.push(`- **PRs:** ${workout.summary.prCount} 🏆`);
-  }
-
-  // Notes
-  if (workout.notes) {
-    lines.push('');
-    lines.push('### Notes');
-    lines.push(workout.notes);
-  }
-
-  // Rating
-  if (workout.workoutRating) {
-    lines.push('');
-    lines.push(`**Rating:** ${'⭐'.repeat(workout.workoutRating)}`);
-  }
-
-  return lines.join('\n');
+export interface SessionMeta {
+  title: string;
+  goal?: string;
+  guide?: string;
+  analysis?: SessionAnalysisInput;
 }
 
 export interface SaveWorkoutResult {
@@ -86,23 +24,32 @@ export interface SaveWorkoutResult {
 }
 
 /**
- * Save a completed workout session to the database
- * Creates an Event with rawJson and enqueues for interpretation
- *
- * Note: After running Prisma migration, rawJson and trackedType fields will be available.
- * Until then, we store the full workout in the content field as formatted text.
+ * Save a completed workout session to the database.
+ * Creates an Event with rawJson (structured data) and content (rich markdown
+ * in the format recognized by parseSessionLog in EventRow).
  */
 export async function saveWorkoutSession(
-  workout: WorkoutLog
+  workout: WorkoutLog,
+  events?: { content: string; llmComment?: string }[],
+  sessionMeta?: SessionMeta,
 ): Promise<SaveWorkoutResult> {
   const user = await requireUser();
+
+  // Build rich markdown content using the shared formatter
+  const content = formatSessionContent({
+    title: sessionMeta?.title || workout.workoutName || `Workout - ${workout.date}`,
+    goal: sessionMeta?.goal,
+    guide: sessionMeta?.guide || 'Gym Coach',
+    events: events?.map(e => ({ content: e.content, llmComment: e.llmComment })),
+    analysis: sessionMeta?.analysis,
+  });
 
   // Create Event and WorkerJob atomically
   const result = await prisma.$transaction(async (tx) => {
     const event = await tx.event.create({
       data: {
         userId: user.id,
-        content: formatWorkoutAsText(workout),
+        content,
         occurredAt: new Date(workout.date),
         rawJson: workout as object,
         trackedType: TrackedType.GYM,
@@ -223,24 +170,21 @@ export async function updateWorkoutSession(
 ): Promise<{ success: boolean }> {
   const user = await requireUser();
 
-  const updateData: {
-    content: string;
-    occurredAt: Date;
-    rawJson?: object;
-  } = {
-    content: formatWorkoutAsText(workout),
-    occurredAt: new Date(workout.date)
-  };
-
-  // rawJson field available after migration
-  updateData.rawJson = workout as object;
+  const content = formatSessionContent({
+    title: workout.workoutName || `Workout - ${workout.date}`,
+    guide: 'Gym Coach',
+  });
 
   await prisma.event.update({
     where: {
       id: eventId,
       userId: user.id
     },
-    data: updateData as Parameters<typeof prisma.event.update>[0]['data']
+    data: {
+      content,
+      occurredAt: new Date(workout.date),
+      rawJson: workout as object,
+    } as Parameters<typeof prisma.event.update>[0]['data']
   });
 
   return { success: true };

@@ -11,6 +11,7 @@ export interface CachedEvent {
   content: string
   createdAt: string
   occurredAt: string | null
+  trackedType?: string | null
 }
 
 export interface PendingEvent {

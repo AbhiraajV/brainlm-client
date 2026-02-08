@@ -9,8 +9,10 @@
  */
 
 import { requireUser } from '@/server/auth';
-import type { WorkoutTemplate, TemplateExercise, MuscleGroup, WorkoutPreferences, PlanDay, SplitType } from '@/lib/sessions/types';
+import type { WorkoutTemplate, TemplateExercise, MuscleGroup, WorkoutPreferences, PlanDay, SplitType, EquipmentAccess } from '@/lib/sessions/types';
 import { getExerciseHistory, getExerciseNames, getRecentWorkouts } from './gym-history.actions';
+import { findExerciseById, searchExercises } from '@/lib/gym/exercise-database';
+import type { GlobalExercise } from '@/lib/gym/exercise-database';
 import {
   TEMPLATE_COACH_TOOLS,
   WORKOUT_PLAN_TOOL,
@@ -98,7 +100,7 @@ ${recentWorkouts || '(No recent workouts)'}
 - Sound like a real trainer, not an AI assistant`;
 }
 
-function buildGenerationPrompt(exerciseHistory: string, recentWorkouts: string, exerciseNames: string[]): string {
+function buildGenerationPrompt(exerciseHistory: string, recentWorkouts: string, exerciseNames: string[], exerciseCatalog?: string): string {
   return `You are generating a workout template based on the conversation. Use the generate_workout_template tool to create the template.
 
 ## USER'S EXERCISE HISTORY (reference this for smart targets)
@@ -109,7 +111,13 @@ ${recentWorkouts || '(No recent workouts)'}
 
 ## EXERCISES THE USER HAS DONE BEFORE
 ${exerciseNames.length > 0 ? exerciseNames.join(', ') : '(No prior exercises)'}
+${exerciseCatalog ? `
+## EXERCISE CATALOG (pick exercises by ID from this list)
+${exerciseCatalog}
 
+IMPORTANT: When creating exercises, use the exact name and globalExerciseId from this catalog.
+If you need an exercise not in this list, provide the name without a globalExerciseId.
+` : ''}
 ## TEMPLATE DESIGN PRINCIPLES
 1. **Exercise Order**: Compound movements first, isolation last
 2. **Volume**:
@@ -187,7 +195,7 @@ async function callOpenAI(
     model: 'gpt-4o',
     messages,
     temperature: 0.7,
-    max_tokens: 500,
+    max_tokens: includeTools ? 2500 : 500,
   };
 
   if (includeTools) {
@@ -302,21 +310,43 @@ export async function generateTemplateFromChat(
 
     const args: GenerateWorkoutTemplateArgs = JSON.parse(toolCall.function.arguments);
 
-    // Convert generated exercises to template exercises
-    const exercises: TemplateExercise[] = args.exercises.map((ex, index) => ({
-      id: crypto.randomUUID(),
-      exerciseName: ex.exerciseName,
-      muscleGroup: ex.muscleGroup,
-      secondaryMuscles: ex.secondaryMuscles,
-      equipmentType: ex.equipmentType,
-      targetSets: ex.targetSets,
-      targetReps: ex.targetReps,
-      targetWeight: ex.targetWeight,
-      targetWeightUnit: ex.targetWeightUnit || 'kg',
-      restSeconds: ex.restSeconds,
-      notes: ex.notes,
-      orderIndex: index,
-    }));
+    // Convert generated exercises to template exercises, resolving against global DB
+    const exercises: TemplateExercise[] = args.exercises.map((ex, index) => {
+      // Prefer globalExerciseId if LLM provided one
+      let resolvedName = ex.exerciseName;
+      let resolvedMuscle = ex.muscleGroup;
+      let resolvedEquip = ex.equipmentType;
+      let resolvedGlobalId = ex.globalExerciseId;
+      let registryId: string | undefined;
+
+      if (ex.globalExerciseId) {
+        const globalMatch = findExerciseById(ex.globalExerciseId);
+        if (globalMatch) {
+          resolvedName = globalMatch.name;
+          resolvedMuscle = globalMatch.muscleGroup;
+          resolvedEquip = globalMatch.equipmentType;
+          resolvedGlobalId = globalMatch.id;
+          registryId = String(globalMatch.id);
+        }
+      }
+
+      return {
+        id: crypto.randomUUID(),
+        exerciseName: resolvedName,
+        globalExerciseId: resolvedGlobalId,
+        muscleGroup: resolvedMuscle,
+        secondaryMuscles: ex.secondaryMuscles,
+        equipmentType: resolvedEquip,
+        exerciseRegistryId: registryId,
+        targetSets: ex.targetSets,
+        targetReps: ex.targetReps,
+        targetWeight: ex.targetWeight,
+        targetWeightUnit: ex.targetWeightUnit || 'kg',
+        restSeconds: ex.restSeconds,
+        notes: ex.notes,
+        orderIndex: index,
+      };
+    });
 
     // Compute muscle groups from exercises
     const muscleGroups = Array.from(
@@ -395,17 +425,23 @@ export async function getTemplateCoachGreeting(): Promise<{ greeting: string }> 
 // WORKOUT PLAN GENERATION
 // ============================================================================
 
+function asArray<T>(v: T | T[]): T[] { return Array.isArray(v) ? v : [v]; }
+
 function formatPreferences(prefs: WorkoutPreferences): string {
+  const custom = prefs.customDescriptions || {};
+
   const goalLabels: Record<string, string> = {
     weight_loss: 'Weight Loss', muscle_gain: 'Muscle Gain', strength: 'Strength',
     general_fitness: 'General Fitness', endurance: 'Endurance', body_recomp: 'Body Recomposition',
+    other: 'Other',
   };
   const expLabels: Record<string, string> = {
     beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced',
+    other: 'Other',
   };
   const equipLabels: Record<string, string> = {
     full_gym: 'Full Gym', home_gym: 'Home Gym', dumbbells_only: 'Dumbbells Only',
-    bodyweight: 'Bodyweight', minimal: 'Minimal Equipment',
+    bodyweight: 'Bodyweight', minimal: 'Minimal Equipment', other: 'Other',
   };
   const splitLabels: Record<string, string> = {
     ppl: 'Push/Pull/Legs', upper_lower: 'Upper/Lower', full_body: 'Full Body',
@@ -413,17 +449,30 @@ function formatPreferences(prefs: WorkoutPreferences): string {
   };
   const cardioLabels: Record<string, string> = {
     none: 'None', light: 'Light (warmup only)', moderate: 'Moderate (end of session)',
-    heavy: 'Heavy (dedicated days)',
+    heavy: 'Heavy (dedicated days)', other: 'Other',
   };
 
+  // Helper: append custom description when value is 'other' or 'custom'
+  const withCustom = (label: string, value: string, customText?: string) => {
+    if ((value === 'other' || value === 'custom') && customText) {
+      return `${label} — ${customText}`;
+    }
+    return label;
+  };
+
+  const goalArr = asArray(prefs.trainingGoal);
+  const goalText = goalArr.map(g => withCustom(goalLabels[g] || g, g, custom.trainingGoal)).join(' + ');
+  const equipArr = asArray(prefs.equipmentAccess);
+  const equipText = equipArr.map(e => withCustom(equipLabels[e] || e, e, custom.equipmentAccess)).join(' + ');
+
   const lines = [
-    `Goal: ${goalLabels[prefs.trainingGoal] || prefs.trainingGoal}`,
-    `Experience: ${expLabels[prefs.experienceLevel] || prefs.experienceLevel}`,
-    `Equipment: ${equipLabels[prefs.equipmentAccess] || prefs.equipmentAccess}`,
+    `Goal: ${goalText}`,
+    `Experience: ${withCustom(expLabels[prefs.experienceLevel] || prefs.experienceLevel, prefs.experienceLevel, custom.experienceLevel)}`,
+    `Equipment: ${equipText}`,
     `Training Days/Week: ${prefs.daysPerWeek}`,
     `Session Duration: ${prefs.sessionDuration} minutes`,
-    `Split Type: ${splitLabels[prefs.splitType] || prefs.splitType}`,
-    `Cardio: ${cardioLabels[prefs.cardioLevel] || prefs.cardioLevel}`,
+    `Split Type: ${withCustom(splitLabels[prefs.splitType] || prefs.splitType, prefs.splitType, custom.splitType)}`,
+    `Cardio: ${withCustom(cardioLabels[prefs.cardioLevel] || prefs.cardioLevel, prefs.cardioLevel, custom.cardioLevel)}`,
   ];
 
   if (prefs.focusAreas.length > 0) {
@@ -479,7 +528,9 @@ function buildDayExercisePrompt(
   planContext: string,
   dayContext: string,
   exerciseHistory: string,
-  exerciseNames: string[]
+  exerciseNames: string[],
+  exerciseCatalog?: string,
+  userInstruction?: string
 ): string {
   return `You are generating exercises for a specific day in a workout plan. Use the generate_workout_template tool.
 
@@ -497,10 +548,21 @@ ${exerciseHistory || '(No history - use reasonable defaults)'}
 
 ## EXERCISES THE USER HAS DONE BEFORE
 ${exerciseNames.length > 0 ? exerciseNames.join(', ') : '(No prior exercises)'}
+${exerciseCatalog ? `
+## EXERCISE CATALOG (pick exercises by ID from this list)
+${exerciseCatalog}
 
-## EXERCISE DESIGN RULES
+IMPORTANT: When creating exercises, use the exact name and globalExerciseId from this catalog.
+If you need an exercise not in this list, provide the name without a globalExerciseId.
+` : ''}${userInstruction ? `
+## USER INSTRUCTION (HIGHEST PRIORITY — overrides all other rules)
+${userInstruction}
+
+You MUST follow these instructions exactly. If the user specifies particular exercises, generate ONLY those exercises (plus minor variations only if the user says "and similar" or "etc"). If the user says "only X and Y", output exactly X and Y — do NOT add extra exercises to fill time. The exercise count rules below are defaults that the user's instruction overrides.
+` : ''}
+## EXERCISE DESIGN RULES (defaults — overridden by user instruction above)
 1. Compound movements first, isolation last
-2. Match exercise count to the session duration:
+2. Default exercise count by session duration (SKIP this rule if user specified exact exercises):
    - 30 min: 3-4 exercises
    - 45 min: 4-5 exercises
    - 60 min: 5-6 exercises
@@ -611,7 +673,8 @@ export async function generateWorkoutPlan(
 export async function generateDayExercises(
   preferences: WorkoutPreferences,
   allDays: { name: string; targetMuscles: MuscleGroup[]; exercises: { exerciseName: string }[] }[],
-  targetDay: { name: string; targetMuscles: MuscleGroup[]; estimatedDuration: number }
+  targetDay: { name: string; targetMuscles: MuscleGroup[]; estimatedDuration: number },
+  userInstruction?: string
 ): Promise<{
   exercises: GeneratedExercise[] | null;
   error?: string;
@@ -637,7 +700,23 @@ export async function generateDayExercises(
 
     const dayContext = `Day: ${targetDay.name}\nTarget Muscles: ${targetDay.targetMuscles.join(', ')}\nDuration: ${targetDay.estimatedDuration} min`;
 
-    const systemPrompt = buildDayExercisePrompt(prefsText, planContext, dayContext, exerciseHistory, exerciseNames);
+    // Pre-filter exercises from global DB by target muscle groups
+    const catalogExercises: GlobalExercise[] = [];
+    const seenIds = new Set<number>();
+    for (const mg of targetDay.targetMuscles) {
+      const results = searchExercises('', { muscleGroup: mg, limit: 30 });
+      for (const ex of results) {
+        if (!seenIds.has(ex.id)) {
+          seenIds.add(ex.id);
+          catalogExercises.push(ex);
+        }
+      }
+    }
+    const exerciseCatalog = catalogExercises.length > 0
+      ? catalogExercises.map(ex => `${ex.id}: ${ex.name} (${ex.muscleGroup}, ${ex.equipmentType})`).join('\n')
+      : undefined;
+
+    const systemPrompt = buildDayExercisePrompt(prefsText, planContext, dayContext, exerciseHistory, exerciseNames, exerciseCatalog, userInstruction);
 
     const messages: OpenAIChatMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -657,9 +736,314 @@ export async function generateDayExercises(
     }
 
     const args: GenerateWorkoutTemplateArgs = JSON.parse(toolCall.function.arguments);
-    return { exercises: args.exercises };
+
+    // Resolve each exercise — prefer globalExerciseId from LLM, fallback to name search
+    const resolvedExercises = args.exercises.map((ex) => {
+      if (ex.globalExerciseId) {
+        const globalMatch = findExerciseById(ex.globalExerciseId);
+        if (globalMatch) {
+          return {
+            ...ex,
+            exerciseName: globalMatch.name,
+            muscleGroup: globalMatch.muscleGroup,
+            equipmentType: globalMatch.equipmentType,
+            globalExerciseId: globalMatch.id,
+            exerciseRegistryId: String(globalMatch.id),
+          };
+        }
+      }
+      return ex;
+    });
+
+    return { exercises: resolvedExercises };
   } catch (error) {
     console.error('[DayExercises] Generation error:', error);
     return { exercises: null, error: error instanceof Error ? error.message : 'Failed to generate exercises' };
   }
+}
+
+// ============================================================================
+// GENERATE ALL DAY EXERCISES
+// ============================================================================
+
+/**
+ * Generate exercises for all empty training days in a plan, sequentially.
+ * Each day's result is fed into the context for subsequent days to avoid overlap.
+ */
+export async function generateAllDayExercises(
+  preferences: WorkoutPreferences,
+  plan: { days: PlanDay[] },
+  userInstruction?: string,
+  forceAll?: boolean
+): Promise<{ dayId: string; exercises: GeneratedExercise[] }[]> {
+  await requireUser();
+
+  // Filter to non-rest days — optionally include days that already have exercises
+  const targetDays = plan.days
+    .filter((d) => !d.isRestDay && (forceAll || d.exercises.length === 0))
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+
+  if (targetDays.length === 0) return [];
+
+  // Build a mutable copy of allDays context that we'll accumulate into
+  const allDaysContext = plan.days.map((d) => ({
+    name: d.name,
+    targetMuscles: d.targetMuscles,
+    exercises: d.exercises.map((e) => ({ exerciseName: e.exerciseName })),
+  }));
+
+  const results: { dayId: string; exercises: GeneratedExercise[] }[] = [];
+
+  for (const day of targetDays) {
+    const { exercises, error } = await generateDayExercises(
+      preferences,
+      allDaysContext,
+      {
+        name: day.name,
+        targetMuscles: day.targetMuscles,
+        estimatedDuration: day.estimatedDuration,
+      },
+      userInstruction
+    );
+
+    if (error || !exercises) {
+      console.error(`[GenerateAll] Failed for day "${day.name}":`, error);
+      continue;
+    }
+
+    results.push({ dayId: day.id, exercises });
+
+    // Merge generated exercises into context for next iteration
+    const dayIndex = allDaysContext.findIndex((d) => d.name === day.name);
+    if (dayIndex !== -1) {
+      allDaysContext[dayIndex].exercises = exercises.map((e) => ({ exerciseName: e.exerciseName }));
+    }
+  }
+
+  return results;
+}
+
+// ============================================================================
+// EDIT WORKOUT PLAN WITH AI
+// ============================================================================
+
+function buildPlanEditPrompt(
+  currentPlanText: string,
+  preferences: string,
+  exerciseHistory: string,
+  editInstruction: string
+): string {
+  return `You are modifying an existing workout plan based on user instructions. Use the generate_workout_plan tool to output the MODIFIED plan.
+
+## CURRENT PLAN
+${currentPlanText}
+
+## USER PREFERENCES
+${preferences}
+
+## USER'S EXERCISE HISTORY
+${exerciseHistory || '(No history available)'}
+
+## EDIT INSTRUCTION
+"${editInstruction}"
+
+## RULES
+1. Apply the user's edit instruction to the current plan
+2. Keep unchanged days as similar as possible (same names, muscles, durations)
+3. Always output exactly 7 days (training + rest = 7)
+4. If the user asks to add/remove training days, adjust rest days accordingly
+5. If the user asks to change the split, restructure all training days
+6. Maintain sensible rest day placement (avoid 3+ consecutive training days)
+7. Give each day a descriptive name matching its purpose
+8. Preserve the plan name unless the change warrants renaming it
+
+Call the generate_workout_plan tool now with the modified plan.`;
+}
+
+function formatCurrentPlanForEdit(plan: {
+  name: string;
+  description?: string;
+  splitType: SplitType;
+  days: { dayLabel: string; name: string; description?: string; targetMuscles: MuscleGroup[]; estimatedDuration: number; isRestDay: boolean; isCardioDay?: boolean; cardioNotes?: string; exercises?: { exerciseName: string }[] }[];
+}): string {
+  const lines: string[] = [];
+  lines.push(`Plan: "${plan.name}"`);
+  if (plan.description) lines.push(`Description: ${plan.description}`);
+  lines.push(`Split: ${plan.splitType}`);
+  lines.push('');
+
+  for (const day of plan.days) {
+    if (day.isRestDay) {
+      lines.push(`- ${day.dayLabel}: REST "${day.name}"${day.cardioNotes ? ` (${day.cardioNotes})` : ''}`);
+    } else {
+      const muscles = day.targetMuscles.join(', ');
+      const exStr = day.exercises && day.exercises.length > 0
+        ? ` | Exercises: ${day.exercises.map(e => e.exerciseName).join(', ')}`
+        : '';
+      lines.push(`- ${day.dayLabel}: "${day.name}" [${muscles}] ~${day.estimatedDuration}min${exStr}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Edit an existing workout plan using natural language instructions.
+ * Returns a modified plan structure (days without exercises — those are generated separately).
+ */
+export async function editWorkoutPlan(
+  currentPlan: {
+    name: string;
+    description?: string;
+    splitType: SplitType;
+    days: { dayLabel: string; name: string; description?: string; targetMuscles: MuscleGroup[]; estimatedDuration: number; isRestDay: boolean; isCardioDay?: boolean; cardioNotes?: string; exercises?: { exerciseName: string }[] }[];
+  },
+  preferences: WorkoutPreferences,
+  editInstruction: string
+): Promise<{
+  plan: {
+    name: string;
+    description: string;
+    splitType: SplitType;
+    days: Omit<PlanDay, 'id' | 'exercises' | 'orderIndex'>[];
+  } | null;
+  error?: string;
+}> {
+  await requireUser();
+
+  if (!OPENAI_API_KEY) {
+    return { plan: null, error: 'API configuration error' };
+  }
+
+  try {
+    const { exerciseHistory } = await getExerciseContext();
+    const prefsText = formatPreferences(preferences);
+    const planText = formatCurrentPlanForEdit(currentPlan);
+    const systemPrompt = buildPlanEditPrompt(planText, prefsText, exerciseHistory, editInstruction);
+
+    const messages: OpenAIChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Apply this edit: "${editInstruction}". Use the generate_workout_plan tool.` },
+    ];
+
+    const requestBody: Record<string, unknown> = {
+      model: 'gpt-4o',
+      messages,
+      temperature: 0.7,
+      max_tokens: 1500,
+      tools: [WORKOUT_PLAN_TOOL],
+      tool_choice: { type: 'function', function: { name: 'generate_workout_plan' } },
+    };
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error('OpenAI API error');
+    }
+
+    const data: OpenAIResponse = await response.json();
+    const assistantMessage = data.choices?.[0]?.message;
+
+    if (!assistantMessage?.tool_calls?.length) {
+      return { plan: null, error: 'No plan generated' };
+    }
+
+    const toolCall = assistantMessage.tool_calls[0];
+    if (toolCall.function.name !== 'generate_workout_plan') {
+      return { plan: null, error: 'Unexpected tool call' };
+    }
+
+    const args: GenerateWorkoutPlanArgs = JSON.parse(toolCall.function.arguments);
+
+    return {
+      plan: {
+        name: args.name,
+        description: args.description,
+        splitType: args.splitType as SplitType,
+        days: args.days.map((d, i) => ({
+          dayNumber: i + 1,
+          dayLabel: d.dayLabel,
+          name: d.name,
+          description: d.description,
+          targetMuscles: (d.targetMuscles || []) as MuscleGroup[],
+          estimatedDuration: d.estimatedDuration || 0,
+          isRestDay: d.isRestDay,
+          isCardioDay: d.isCardioDay,
+          cardioNotes: d.cardioNotes,
+        })),
+      },
+    };
+  } catch (error) {
+    console.error('[EditWorkoutPlan] Error:', error);
+    return { plan: null, error: error instanceof Error ? error.message : 'Failed to edit plan' };
+  }
+}
+
+// ============================================================================
+// QUICK AI WORKOUT (for gym start modal)
+// ============================================================================
+
+/**
+ * Generate a quick workout from muscle groups + duration.
+ * Reuses the existing generateDayExercises pipeline (global DB pre-filter,
+ * forced tool calling, exercise resolution) — zero new LLM plumbing.
+ */
+export async function generateQuickWorkout(
+  targetMuscles: MuscleGroup[],
+  durationMinutes: number,
+  equipmentAccess?: EquipmentAccess,
+  userInstruction?: string,
+): Promise<{
+  exercises: GeneratedExercise[] | null;
+  workoutName: string;
+  error?: string;
+}> {
+  await requireUser();
+
+  // Build a workout name from muscles
+  const muscleLabels: Record<string, string> = {
+    chest: 'Chest', back: 'Back', shoulders: 'Shoulders',
+    biceps: 'Arms', triceps: 'Arms', forearms: 'Arms',
+    quadriceps: 'Legs', hamstrings: 'Legs', glutes: 'Glutes',
+    calves: 'Legs', abs: 'Core', obliques: 'Core',
+    lower_back: 'Core', traps: 'Back', lats: 'Back', full_body: 'Full Body',
+  };
+  const uniqueLabels = [...new Set(targetMuscles.map((m) => muscleLabels[m] || m))];
+  const workoutName = uniqueLabels.slice(0, 3).join(' & ') + ' Session';
+
+  // Build minimal preferences with sensible defaults
+  const preferences: WorkoutPreferences = {
+    trainingGoal: 'general_fitness',
+    experienceLevel: 'intermediate',
+    equipmentAccess: equipmentAccess || 'full_gym',
+    daysPerWeek: 4,
+    sessionDuration: durationMinutes,
+    focusAreas: [],
+    deprioritizeAreas: [],
+    splitType: 'custom',
+    cardioLevel: 'none',
+  };
+
+  // Build virtual PlanDay
+  const virtualDay = {
+    name: workoutName,
+    targetMuscles,
+    estimatedDuration: durationMinutes,
+  };
+
+  const { exercises, error } = await generateDayExercises(
+    preferences,
+    [],  // empty allDays — no overlap avoidance needed
+    virtualDay,
+    userInstruction,
+  );
+
+  return { exercises: exercises ?? null, workoutName, error };
 }

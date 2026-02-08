@@ -1,4 +1,6 @@
-export { GoToSessionsButton } from './GoToSessionsButton';
+export { SessionsGrid } from './SessionsGrid';
+export { SessionsDrawer } from './SessionsDrawer';
+export { NavMiniCards } from './NavMiniCards';
 export { SessionList } from './SessionList';
 export { SessionCard } from './SessionCard';
 export { SessionRow } from './SessionRow';
@@ -11,3 +13,4 @@ export { EmptyState } from './EmptyState';
 export { PRCelebration } from './PRCelebration';
 export { HabitLogCard } from './HabitLogCard';
 export { HabitCalendarView } from './HabitCalendarView';
+export { GymStartModal } from './GymStartModal';

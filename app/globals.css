@@ -1,33 +1,33 @@
 @import "tailwindcss";
 
 @theme {
-  /* Dark Mode Base Colors - Softer, premium feel */
-  --color-bg: #0e0e11;
-  --color-surface: #18181c;
-  --color-text: #e8e8ec;
-  --color-muted: #8a8a94;
-  --color-line: #35353d;
+  /* Material Dark Mode Base Colors */
+  --color-bg: #121212;
+  --color-surface: #121212;
+  --color-text: #FFFFFF;
+  --color-muted: #a0a0a0;
+  --color-line: #2c2c2c;
 
-  /* Primary Accent - Pink */
-  --color-accent: #ef476f;
-  --color-accent-light: #f26b8a;
-  --color-accent-dark: #c4304f;
+  /* Primary Accent - Deep Rose */
+  --color-accent: #C73E4A;
+  --color-accent-light: #D95862;
+  --color-accent-dark: #B30025;
 
-  /* Secondary Accent - Green */
-  --color-accent-secondary: #06d6a0;
-  --color-accent-secondary-light: #3de8b8;
-  --color-accent-secondary-dark: #05b384;
+  /* Secondary Accent - Muted Green */
+  --color-accent-secondary: #239B56;
+  --color-accent-secondary-light: #2db86a;
+  --color-accent-secondary-dark: #1c7c45;
 
   /* Color Palette */
-  --color-coral: #ef476f;
-  --color-mint: #06d6a0;
-  --color-lime: #3de8b8;
+  --color-coral: #FC8686;
+  --color-mint: #239B56;
+  --color-lime: #FDB0B0;
 
   /* Functional Colors */
-  --color-success: #06d6a0;
-  --color-info: #06d6a0;
-  --color-warn: #ef476f;
-  --color-error: #ef476f;
+  --color-success: #239B56;
+  --color-info: #FC8686;
+  --color-warn: #FDB0B0;
+  --color-error: #B30025;
 
   /* Spacing & Radius */
   --radius-sm: 8px;
@@ -46,8 +46,9 @@
 
 /* Font definitions - must be outside @theme to use Next.js font variables */
 :root {
-  --font-sans: var(--font-libre), Georgia, serif;
+  --font-sans: var(--font-montserrat), 'Montserrat', sans-serif;
   --font-serif: var(--font-gravitas), Impact, sans-serif;
+  --font-display: var(--font-montserrat), 'Montserrat', sans-serif;
 }
 
 /* Override Tailwind's font utilities to use our fonts */
@@ -56,7 +57,11 @@
 }
 
 .font-sans {
-  font-family: var(--font-libre), Georgia, serif !important;
+  font-family: var(--font-montserrat), 'Montserrat', sans-serif !important;
+}
+
+.font-display {
+  font-family: var(--font-montserrat), 'Montserrat', sans-serif !important;
 }
 
 /* Base styles - Mobile first, larger text */
@@ -67,13 +72,13 @@ html {
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-libre), Georgia, serif;
+  font-family: var(--font-montserrat), 'Montserrat', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
 }
 
-/* Gravitas One headings - bold display font */
+/* Gravitas headings - display font for all titles */
 h1, h2, h3 {
   font-family: var(--font-gravitas), Impact, sans-serif;
   font-weight: 400;

@@ -11,8 +11,10 @@ import type {
   SessionAnalysis,
   MenstrualCycleInfo
 } from '@/lib/sessions/types';
+import type { KnownExercise, ExerciseLibrarySummary } from '@/server/actions/exercise-library.actions';
 import {
   GYM_COACH_TOOLS,
+  type SearchExerciseDatabaseArgs,
   type AddExerciseArgs,
   type AddSetArgs,
   type UpdateSetArgs,
@@ -20,6 +22,7 @@ import {
   type RemoveExerciseArgs,
   type RenameExerciseArgs,
   type GetExerciseHistoryArgs,
+  type UpdateExerciseNotesArgs,
   type UpdateWorkoutNotesArgs
 } from './gym-coach-tools';
 import {
@@ -30,9 +33,11 @@ import {
   handleRemoveExercise,
   handleRenameExercise,
   handleUpdateWorkout,
+  handleUpdateExerciseNotes,
   type ExercisePRData
 } from './handlers';
-import { queryExercisePR, getExerciseHistory } from '@/server/actions/gym-history.actions';
+import { queryExercisePR, getExerciseHistory, type SessionInsightEntry } from '@/server/actions/gym-history.actions';
+import { searchExercises, findExerciseById } from '@/lib/gym/exercise-database';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -89,6 +94,82 @@ export interface GymCoachAgentResult {
 }
 
 /**
+ * Format past session insights grouped by exercise.
+ * For each insight, check which exercises it mentions and group accordingly.
+ * Insights that don't mention any specific exercise go under "General".
+ */
+function formatPastInsights(pastInsights: SessionInsightEntry[]): string {
+  if (!pastInsights.length) return '(No past session notes yet)';
+
+  const byExercise: Record<string, string[]> = {};
+
+  for (const insight of pastInsights) {
+    const dateLabel = `[${insight.date}, ${insight.workoutName || 'Workout'}]`;
+    let matched = false;
+
+    for (const exName of insight.exerciseNames) {
+      // Check if the insight text mentions this exercise (case-insensitive partial match on significant words)
+      const words = exName.toLowerCase().split(/\s+/);
+      const mentionsExercise = words.some(w => w.length > 3 && insight.insight.toLowerCase().includes(w));
+      if (mentionsExercise) {
+        if (!byExercise[exName]) byExercise[exName] = [];
+        byExercise[exName].push(`  ${dateLabel} ${insight.insight}`);
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      if (!byExercise['General']) byExercise['General'] = [];
+      byExercise['General'].push(`  ${dateLabel} ${insight.insight}`);
+    }
+  }
+
+  return Object.entries(byExercise)
+    .map(([exercise, notes]) => `${exercise}:\n${notes.join('\n')}`)
+    .join('\n\n');
+}
+
+/**
+ * Format exercise library summaries for injection into the system prompt.
+ * Pre-formats each exercise with PR, trend, recent sessions, and insights.
+ */
+function formatExerciseLibrary(summaries: ExerciseLibrarySummary[]): string {
+  if (!summaries.length) return '';
+
+  const trendArrow = (t: 'up' | 'down' | 'flat' | null) =>
+    t === 'up' ? '↑' : t === 'down' ? '↓' : t === 'flat' ? '→' : '?';
+
+  const formatDate = (iso: string) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const lines: string[] = [
+    '## EXERCISE PERFORMANCE DATA — TODAY\'S MUSCLE GROUPS',
+    '',
+    'Detailed stats for exercises relevant to today\'s session. Use this for evidence-based coaching.',
+    '',
+  ];
+
+  for (const ex of summaries) {
+    lines.push(`### ${ex.exerciseName} (${ex.muscleGroup}, ${ex.equipmentType}) — ${ex.sessionCount} sessions, trend: ${trendArrow(ex.progressTrend)}`);
+    lines.push(`PR: ${ex.prWeight}kg (${formatDate(ex.prWeightDate)}) | E1RM: ${Math.round(ex.prE1RM)}kg (${formatDate(ex.prE1RMDate)})`);
+    if (ex.recentSessions) {
+      lines.push(`Recent: ${ex.recentSessions}`);
+    }
+    if (ex.insights.length > 0) {
+      lines.push(`Insights: ${ex.insights.map(i => i.message).join('; ')}`);
+    }
+    if (ex.notes.length > 0) {
+      lines.push(`Notes: ${ex.notes.map(n => `"${n}"`).join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Build the system prompt for the gym coach agent
  */
 function buildSystemPrompt(
@@ -96,7 +177,11 @@ function buildSystemPrompt(
   currentWorkout: WorkoutLog,
   analysis?: SessionAnalysis,
   cyclePhase?: MenstrualCycleInfo,
-  lastLoggedSet?: LastLoggedSet
+  lastLoggedSet?: LastLoggedSet,
+  workoutPlanContext?: string,
+  knownExercises?: KnownExercise[],
+  pastInsights?: SessionInsightEntry[],
+  exerciseLibrary?: ExerciseLibrarySummary[]
 ): string {
   const workoutContext = currentWorkout.exercises.length > 0
     ? formatWorkoutForPrompt(currentWorkout)
@@ -114,25 +199,22 @@ ${cyclePhase.currentPhase === 'luteal' ? '🧘 Focus on maintenance and recovery
 `
     : '';
 
-  // Build comprehensive user context - put exercise history first and most prominent
-  const todaysPlanText = typeof analysis?.todaysPlan === 'string'
-    ? analysis.todaysPlan
-    : analysis?.todaysPlan?.summary || '';
-
-  const todaysPlanItems = typeof analysis?.todaysPlan === 'object' && analysis?.todaysPlan?.items
-    ? analysis.todaysPlan.items.map(i => `- ${i.suggestion} (${i.rationale})`).join('\n')
-    : '';
+  // Build comprehensive user context - put exercise briefings first and most prominent
+  const exerciseBriefings = analysis?.historyBriefings?.length
+    ? analysis.historyBriefings.map(b =>
+        `### ${b.label}\n${b.fullHistory}\nPatterns: ${b.linkedPatterns.join('; ')}\nInsights: ${b.linkedInsights.join('; ')}\nKey: ${b.keyTakeaways}`
+      ).join('\n\n')
+    : '(No exercise briefings available)';
 
   const userContext = analysis ? `
-## EXERCISE HISTORY - REFERENCE THIS FOR EVERY SET LOGGED
-${analysis.context || '(No history available)'}
-
-## TODAY'S PLAN
-${todaysPlanText}
-${todaysPlanItems}
+## EXERCISE BRIEFINGS — YOUR REFERENCE FOR EVERY SET LOGGED
+${exerciseBriefings}
 
 ## RECENT WORKOUT SESSIONS
 ${analysis.relevantHistory?.map(h => `${h.date}: ${h.event}`).join('\n') || '(No history)'}
+
+## ADDITIONAL CONTEXT
+${analysis.context || '(No additional context)'}
 ` : '';
 
   // Build deep coaching context from analysis - this gives the coach the WHY behind the user's performance
@@ -240,32 +322,107 @@ ${workoutContext}
 CRITICAL: If data already appears in CURRENT SESSION above, it is ALREADY LOGGED.
 Only call tools for NEW data from the user's CURRENT message.
 
-── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
+${knownExercises && knownExercises.length > 0 ? `
+## YOUR USER'S EXERCISE LIBRARY
+
+These are exercises the user has done before. When logging exercises, ALWAYS check this list first.
+If the user mentions an exercise that matches one below, use the EXACT name from this list.
+Only create a new exercise if it genuinely doesn't exist here.
+
+| Exercise | Muscle Group | Equipment | Sessions |
+|----------|-------------|-----------|----------|
+${knownExercises.map(ke => `| ${ke.exerciseName} | ${ke.muscleGroup} | ${ke.equipmentType} | ${ke.sessionCount} |`).join('\n')}
+
+### EXERCISE LIBRARY MATCHING (CRITICAL — FOLLOW EXACTLY)
+
+1. When the user mentions an exercise, FIRST check the library above.
+2. If you find a match (even approximate), use the EXACT exerciseName from the library.
+   - "bench" → matches "Barbell Bench Press" in library → use "Barbell Bench Press"
+   - "incline db" → matches "Incline Dumbbell Press" → use "Incline Dumbbell Press"
+3. If no match in the library, check if this is a well-known exercise and use its proper name.
+4. NEVER create a variation of an exercise that already exists in the library.
+   - BAD: library has "Bench Press", you create "Flat Bench Press"
+   - GOOD: library has "Bench Press", you use "Bench Press"
+5. Use the most specific muscle group possible from the expanded list.
+   - Incline Bench → upper_chest (not just chest)
+   - Lateral Raise → side_delts (not just shoulders)
+   - Skull Crushers → triceps_long_head (not just triceps)
+   - Cable Fly → mid_chest (not just chest)
+   - Face Pulls → rear_delts (not just shoulders)
+   - Hammer Curls → brachialis (not just biceps)
+` : ''}
+${exerciseLibrary && exerciseLibrary.length > 0 ? formatExerciseLibrary(exerciseLibrary) : ''}
+## EXERCISE NOTES — QUALITATIVE OBSERVATIONS
+
+You can store persistent notes on any exercise using update_exercise_notes.
+These notes carry forward to future sessions via the exercise library.
+
+USE THIS FOR:
+- Physical observations: "Left side noticeably weaker", "Shoulder impingement at bottom ROM"
+- Setup notes: "Needs liftoff on sets >80kg", "Seat position 3 on this machine"
+- Form cues: "Tendency to flare elbows", "Better mind-muscle connection with slow eccentric"
+- Equipment preferences: "Wider grip feels better on shoulders"
+
+DO THIS AUTOMATICALLY when you observe something noteworthy from the user's messages.
+DO NOT ask permission — just note it, like a coach writing on their clipboard.
+When the user reports improvement ("left side is catching up", "shoulder feels fine now"):
+→ Update the note to reflect the change or remove the outdated observation.
+
+KEEP NOTES BRIEF — 1 line per observation, comma-separated if multiple.
+
+${workoutPlanContext ? `── USER'S WORKOUT PLAN (their intended program) ──
+${workoutPlanContext}
+Use this to understand the weekly structure and guide today's session.
+────────────────────────────────────────
+
+` : ''}── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
 ${userContext}
 
 ${coachingContext}
-── END HISTORICAL ──
+${pastInsights && pastInsights.length > 0 ? `## YOUR PAST SESSION NOTES (by exercise)
+
+${formatPastInsights(pastInsights)}
+
+Use these to track advice you gave. Did the user follow it? Did it work?
+When the user does an exercise with past notes, use them to make history-driven recommendations.
+` : ''}── END HISTORICAL ──
 
 ## DOMAIN KNOWLEDGE (User's History)
 ${brainTransfer || '(No prior history available)'}
 
 ## RESPONSE RULES
 
-DEFAULT: 1 short sentence. The workout log card shows all the numbers — don't repeat them.
+DEFAULT: 1-2 short sentences. The log card shows all the numbers — don't repeat them.
+After logging a set, add a brief history reference if you have one. No history? Keep it to 1 sentence.
 
-GOOD: "Solid progress from last Tuesday." / "Fatigue showing, expected at exercise 3." / "Ready for incline?"
-BAD: "70kg for 8 reps, that's +1 from your 7s last session. Two more sets then incline." (log shows this)
+GOOD: "Up from last Tuesday's 7s — third set is where you usually fade, stay tight."
+GOOD: "Last time you stalled here after a low-protein day, worth checking."
+GOOD: "Solid opener. Two more then incline."
+BAD: "70kg for 8 reps, that's +1 from your 7s last session." (recites numbers the log shows)
+BAD: "Great set!" (generic, no context)
 
 WHEN TO SAY MORE (2-3 sentences max):
 - User asks a question → answer it, with reasoning from their history
 - User is about to start something new → brief guidance based on what worked before
 - You notice something from their history that's relevant RIGHT NOW (e.g., "Last time you skipped the 3rd set here and regretted it")
 - There's a genuine pattern to call out (e.g., "You always drop reps on set 3 of this — try lowering 2.5kg")
+- A cross-domain correlation is relevant (e.g., diet, sleep, stress from their history)
+
+CROSS-DOMAIN AWARENESS:
+Your context includes the user's FULL history — not just gym, but diet, sleep, stress, and life events.
+When you see a correlation that LOGICALLY explains current performance, mention it briefly:
+- "You logged poor sleep last night — don't chase a PR today, match last session."
+- "High-protein day yesterday, recovery should be solid — push for the extra rep."
+- "You mentioned stress at work this week — fatigue at set 3 tracks with that pattern."
+RULES for cross-domain references:
+- Only reference data you ACTUALLY have in your context (correlations, domain knowledge, emotional factors)
+- Must have clear causal logic — don't force connections
+- Keep it to one brief clause, not a lecture
+- If you don't have cross-domain data, don't invent it
 
 NEVER:
 - Recite weight/reps/calories/macros — the log card shows this
 - Say "X for Y, that's +Z from last time" — just say "up from last time" if relevant
-- Give unprompted long advice — keep it tight unless asked
 - Repeat anything already said in this conversation
 - Hallucinate history you don't have — only reference actual data from your context
 - Use generic praise without specific historical backing
@@ -274,6 +431,8 @@ NEVER:
 USE HISTORY DYNAMICALLY:
 - Compare to their actual past data, not hypotheticals
 - "Last time on this exercise..." / "Your pattern shows..." / "This usually happens when..."
+- Reference past session notes when the user does an exercise you've coached before
+- Connect the dots between sessions — "You've hit this weight 3 sessions in a row, time to bump up" or "Last time you jumped 5kg too fast and missed reps"
 - Only say these when you have the actual data. If you don't have relevant history, just keep it short.
 
 ${cycleContext}
@@ -458,6 +617,14 @@ When user says "another set", "same", "again", "one more", "failed again", or ju
 → Use actualReps: ${lastLoggedSet.reps} (or the number they said if different)
 → "failed again" = setType: "to_failure" with same weight/reps
 ` : ''}
+
+## EXERCISE RESOLUTION (MANDATORY)
+Before calling add_exercise for a NEW exercise, you MUST call search_exercise_database first.
+- Use the exercise name as query, include the broad muscle group if known
+- Review results: prefer exercises marked isKnown (user's existing library)
+- Pass the selected exercise's id as globalExerciseId to add_exercise
+- If no good match exists, call add_exercise without globalExerciseId (custom exercise)
+- This ensures 100% correct exercise identity — never skip this step for new exercises
 
 ## EXERCISE HANDLING
 - BEFORE calling add_exercise, check CURRENT WORKOUT STATE section below
@@ -654,7 +821,11 @@ export async function executeGymCoachAgent(
   previousMessages: ChatMessage[] = [],
   analysis?: SessionAnalysis,
   cyclePhase?: MenstrualCycleInfo,
-  lastLoggedSet?: LastLoggedSet
+  lastLoggedSet?: LastLoggedSet,
+  workoutPlanContext?: string,
+  knownExercises?: KnownExercise[],
+  pastInsights?: SessionInsightEntry[],
+  exerciseLibrary?: ExerciseLibrarySummary[]
 ): Promise<GymCoachAgentResult> {
   if (!OPENAI_API_KEY) {
     return {
@@ -666,7 +837,7 @@ export async function executeGymCoachAgent(
     };
   }
 
-  const systemPrompt = buildSystemPrompt(brainTransfer, currentWorkout, analysis, cyclePhase, lastLoggedSet);
+  const systemPrompt = buildSystemPrompt(brainTransfer, currentWorkout, analysis, cyclePhase, lastLoggedSet, workoutPlanContext, knownExercises, pastInsights, exerciseLibrary);
 
   // Build message history
   const messages: ChatMessage[] = [
@@ -705,7 +876,7 @@ export async function executeGymCoachAgent(
 
         try {
           const args = JSON.parse(toolCall.function.arguments);
-          const result = await processToolCall(workout, toolName, args);
+          const result = await processToolCall(workout, toolName, args, knownExercises);
 
           workout = result.workout;
           if (result.pr) {
@@ -786,7 +957,7 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
 
           try {
             const args = JSON.parse(toolCall.function.arguments);
-            const result = await processToolCall(workout, toolName, args);
+            const result = await processToolCall(workout, toolName, args, knownExercises);
             workout = result.workout;
             if (result.pr) prsDetected.push(result.pr);
 
@@ -925,20 +1096,106 @@ async function callOpenAI(
 async function processToolCall(
   workout: WorkoutLog,
   toolName: string,
-  args: unknown
+  args: unknown,
+  knownExercises?: KnownExercise[]
 ): Promise<{ workout: WorkoutLog; pr?: PRSummary; data?: Record<string, unknown> }> {
   switch (toolName) {
+    case 'search_exercise_database': {
+      const searchArgs = args as SearchExerciseDatabaseArgs;
+      const globalResults = searchExercises(searchArgs.query, {
+        muscleGroup: searchArgs.muscleGroup,
+        limit: 15,
+      });
+
+      // Merge with user's known exercises (known first, deduplicated)
+      const merged: { id: number; name: string; muscleGroup: string; equipmentType: string; isKnown: boolean }[] = [];
+      const seenNames = new Set<string>();
+
+      if (knownExercises) {
+        const queryLower = searchArgs.query.toLowerCase();
+        const queryTokens = queryLower.split(/\s+/);
+        for (const ke of knownExercises) {
+          const keLower = ke.exerciseName.toLowerCase();
+          const matches = queryTokens.every(t => keLower.includes(t));
+          if (matches) {
+            merged.push({
+              id: ke.exerciseRegistryId ? parseInt(ke.exerciseRegistryId, 10) : 0,
+              name: ke.exerciseName,
+              muscleGroup: ke.muscleGroup,
+              equipmentType: ke.equipmentType,
+              isKnown: true,
+            });
+            seenNames.add(keLower);
+          }
+        }
+      }
+
+      for (const g of globalResults) {
+        if (!seenNames.has(g.name.toLowerCase())) {
+          merged.push({
+            id: g.id,
+            name: g.name,
+            muscleGroup: g.muscleGroup,
+            equipmentType: g.equipmentType,
+            isKnown: false,
+          });
+          seenNames.add(g.name.toLowerCase());
+        }
+      }
+
+      return {
+        workout,
+        data: { exercises: merged.slice(0, 15) },
+      };
+    }
+
     case 'add_exercise': {
-      const result = handleAddExercise(workout, args as AddExerciseArgs);
+      const addArgs = args as AddExerciseArgs;
+      const result = handleAddExercise(workout, addArgs);
+
+      // If agent provided a globalExerciseId, use canonical data from global DB
+      if (addArgs.globalExerciseId && !result.alreadyExists) {
+        const globalEx = findExerciseById(addArgs.globalExerciseId);
+        if (globalEx) {
+          const exIdx = result.workout.exercises.findIndex(e => e.id === result.exerciseId);
+          if (exIdx >= 0) {
+            result.workout.exercises[exIdx].globalExerciseId = globalEx.id;
+            result.workout.exercises[exIdx].exerciseName = globalEx.name;
+            result.workout.exercises[exIdx].muscleGroup = globalEx.muscleGroup;
+            result.workout.exercises[exIdx].equipmentType = globalEx.equipmentType;
+          }
+        }
+      } else if (!addArgs.globalExerciseId && !result.alreadyExists) {
+        // Agent didn't provide globalExerciseId — check known exercises as fallback
+        if (knownExercises) {
+          const nameLower = addArgs.exerciseName.toLowerCase();
+          const knownMatch = knownExercises.find(
+            ke => ke.exerciseName.toLowerCase() === nameLower
+          );
+          if (knownMatch) {
+            const exIdx = result.workout.exercises.findIndex(e => e.id === result.exerciseId);
+            if (exIdx >= 0 && knownMatch.exerciseRegistryId) {
+              result.workout.exercises[exIdx].exerciseRegistryId = knownMatch.exerciseRegistryId;
+            }
+          } else {
+            // No match anywhere — mark for client-side resolution
+            const exIdx = result.workout.exercises.findIndex(e => e.id === result.exerciseId);
+            if (exIdx >= 0) {
+              result.workout.exercises[exIdx].needsResolution = true;
+            }
+          }
+        }
+      }
+
       return {
         workout: result.workout,
         data: {
           exerciseId: result.exerciseId,
-          exerciseName: (args as AddExerciseArgs).exerciseName,
+          exerciseName: result.workout.exercises.find(e => e.id === result.exerciseId)?.exerciseName || addArgs.exerciseName,
           alreadyExists: result.alreadyExists,
           message: result.alreadyExists
-            ? `Exercise "${(args as AddExerciseArgs).exerciseName}" already exists, using existing ID`
-            : `Created new exercise "${(args as AddExerciseArgs).exerciseName}"`
+            ? `Exercise "${addArgs.exerciseName}" already exists, using existing ID`
+            : `Created new exercise "${addArgs.exerciseName}"`
         }
       };
     }
@@ -960,10 +1217,11 @@ async function processToolCall(
 
       let historicalBest: ExercisePRData | null = null;
       const exerciseNameForPR = exercise?.exerciseName ?? setArgs.exerciseName;
+      const registryIdForPR = exercise?.exerciseRegistryId;
 
       if (exerciseNameForPR) {
         try {
-          historicalBest = await queryExercisePR(exerciseNameForPR);
+          historicalBest = await queryExercisePR(exerciseNameForPR, registryIdForPR);
         } catch (e) {
           console.warn('[GymCoachAgent] Failed to query exercise PR:', e);
         }
@@ -1015,11 +1273,24 @@ async function processToolCall(
 
     case 'get_exercise_history': {
       const historyArgs = args as GetExerciseHistoryArgs;
-      const history = await getExerciseHistory(historyArgs.exerciseName, historyArgs.limit ?? 10);
+      // Look up exercise in current workout to get registryId for better matching
+      const histExercise = workout.exercises.find(
+        e => e.exerciseName.toLowerCase() === historyArgs.exerciseName.toLowerCase()
+      );
+      const history = await getExerciseHistory(
+        historyArgs.exerciseName,
+        historyArgs.limit ?? 10,
+        histExercise?.exerciseRegistryId
+      );
       return {
         workout,
         data: { history }
       };
+    }
+
+    case 'update_exercise_notes': {
+      const result = handleUpdateExerciseNotes(workout, args as UpdateExerciseNotesArgs);
+      return { workout: result.workout, data: { updated: result.updated } };
     }
 
     case 'update_workout_notes': {

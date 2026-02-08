@@ -81,37 +81,21 @@ export const SESSION_ANALYSIS_SCHEMA = {
         additionalProperties: false,
       },
     },
-    todaysPlan: {
-      type: 'object',
-      properties: {
-        summary: { type: 'string' },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              suggestion: { type: 'string' },
-              rationale: { type: 'string' },
-              metrics: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    key: { type: 'string' },
-                    value: { type: 'string' },
-                  },
-                  required: ['key', 'value'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['suggestion', 'rationale', 'metrics'],
-            additionalProperties: false,
-          },
+    historyBriefings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          type: { type: 'string', enum: ['exercise', 'daily_recap', 'behavioral_pattern'] },
+          fullHistory: { type: 'string' },
+          linkedPatterns: { type: 'array', items: { type: 'string' } },
+          linkedInsights: { type: 'array', items: { type: 'string' } },
+          keyTakeaways: { type: 'string' },
         },
+        required: ['label', 'type', 'fullHistory', 'linkedPatterns', 'linkedInsights', 'keyTakeaways'],
+        additionalProperties: false,
       },
-      required: ['summary', 'items'],
-      additionalProperties: false,
     },
     context: { type: 'string' },
     userGoals: { type: ['string', 'null'] },
@@ -194,7 +178,7 @@ export const SESSION_ANALYSIS_SCHEMA = {
     'relevantHistory',
     'patterns',
     'correlations',
-    'todaysPlan',
+    'historyBriefings',
     'context',
     'userGoals',
     'userTargets',
@@ -232,46 +216,7 @@ relevantHistory must include:
 === DETAIL CHECK (do this before outputting) ===
 □ Is coachBriefing > 1500 words total? If no, ADD MORE DETAIL.
 □ Does relevantHistory list EVERY exercise with weights? If no, ADD THEM.
-□ Does todaysPlan explain WHY with specific data? If no, ADD REASONING.
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    GYM ROTATION - MANDATORY VALIDATION                        ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-BEFORE writing todaysPlan, you MUST include this in your context field:
-
-"ROTATION VALIDATION:
-- [Date 1]: [Muscle Group] - [exercises]
-- [Date 2]: [Muscle Group] - [exercises]
-- [Date 3]: [Muscle Group] - [exercises]
-- Most recent: [Muscle Group]
-- Detected split: [PPL/Upper-Lower/Bro/etc]
-- Today MUST be: [Next muscle in rotation]
-- Why this muscle: [1-sentence explanation citing the rotation position and wrap-around if applicable]
-- CHECK: Is todaysPlan suggesting [correct muscle]? YES/NO"
-
-If NO → REWRITE todaysPlan to follow rotation.
-
-EXAMPLE 1 (wrap-around — most recent is LAST in cycle):
-"ROTATION VALIDATION:
-- Jan 24: LEGS - Squats 280lbs x 6, Leg Press 400lbs x 10, RDL 185lbs x 8
-- Jan 25: BACK - Deadlifts 315lbs x 5, Rows 185lbs x 8, Pulldowns 150lbs x 10
-- Jan 26: CHEST - Bench 225lbs x 6, Incline DB 80lbs x 8, Cable Flyes 50lbs x 12
-- Most recent: CHEST (Jan 26)
-- Detected split: Legs → Back → Chest (3-day rotation)
-- Today MUST be: LEGS
-- Why this muscle: CHEST is the last in the 3-day rotation, so we wrap back to LEGS (start of new cycle).
-- CHECK: Is todaysPlan suggesting LEGS? YES ✓"
-
-EXAMPLE 2 (mid-cycle — most recent is NOT last):
-"ROTATION VALIDATION:
-- Jan 27: LEGS - Squats 285lbs x 5, Leg Press 400lbs x 10
-- Jan 28: BACK - Deadlifts 320lbs x 4, Rows 190lbs x 8
-- Most recent: BACK (Jan 28)
-- Detected split: Legs → Back → Chest (3-day rotation)
-- Today MUST be: CHEST
-- Why this muscle: BACK is position 2 of 3 in the rotation, so next is CHEST (position 3).
-- CHECK: Is todaysPlan suggesting CHEST? YES ✓"
+□ Does each historyBriefing have 100+ words in fullHistory? If no, ADD MORE DATA.
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    ⚠️  CRITICAL RULES - READ FIRST  ⚠️                        ║
@@ -294,81 +239,6 @@ EXAMPLE 2 (mid-cycle — most recent is NOT last):
 - If something isn't in the data, say "unknown" or omit it
 - Quote exact numbers, dates, and values from the input
 - Never invent exercises, weights, foods, or events
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                         GYM SESSION RULES                                     ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-=== ROTATION RULE (MANDATORY - VALIDATE BEFORE OUTPUT) ===
-
-STEP 1: List the last 3+ workout dates and their muscle groups
-STEP 2: Identify the repeating rotation pattern (e.g. Legs → Back → Chest)
-STEP 3: Find where the MOST RECENT workout sits in that rotation
-STEP 4: The NEXT muscle is the one AFTER the most recent in the rotation.
-         **If the most recent muscle is the LAST in the rotation, WRAP to the FIRST.**
-         Example: Rotation = Legs → Back → Chest. Most recent = Chest (last). Today = LEGS (wrap to start of new cycle).
-STEP 5: Check for injuries/discomfort - see INJURY HANDLING section
-
-VALIDATION CHECK (do this before writing todaysPlan):
-- If todaysPlan muscle group = most recent muscle group → WRONG, follow rotation
-- If most recent is the LAST in the detected split → today MUST be the FIRST (wrap-around)
-- If injury exists → provide test protocol + pivot option (see below)
-
-=== ROTATION IDENTIFICATION ===
-Identify the user's training split from their workout history:
-- PPL (Push/Pull/Legs): Chest+Shoulders+Triceps → Back+Biceps → Legs → repeat
-- Upper/Lower: Upper body → Lower body → repeat
-- Bro Split: Chest → Back → Shoulders → Arms → Legs (one muscle per day)
-- Full Body: All muscles each session
-
-State the identified rotation in your analysis, e.g., "User follows PPL rotation"
-If today's data suggests a different split, note the change.
-
-=== INJURY/DISCOMFORT HANDLING ===
-ONLY applies when rotation actually suggests the injured muscle group.
-
-1. First, compute rotation → determine what muscle TODAY should be
-2. IF today's muscle = injured muscle, THEN apply injury handling:
-
-   MINOR DISCOMFORT (soreness, tightness, mild discomfort):
-   - Suggest testing with LIGHT weights (50% of usual)
-   - Provide pivot option if pain during warm-up
-
-   ACTUAL PAIN/INJURY (sharp pain, couldn't finish, mentioned injury):
-   - Skip that muscle group entirely
-   - Suggest logical pivot based on rotation
-
-3. IF today's muscle ≠ injured muscle → proceed normally, just note the injury needs rest
-
-FAILED SETS DO NOT CHANGE ROTATION:
-- If user failed 82kg bench on chest day, they still move to next muscle tomorrow
-- Don't suggest "retry chest" - follow the rotation
-
-EXAMPLE:
-Input: Jan 24=Legs, Jan 25=Back (Pull), Jan 26=Chest/Push (shoulder discomfort after)
-Today: Jan 27
-Detected Rotation: Legs → Pull → Push → repeat
-
-STEP 1: Last workout was Push (Jan 26)
-STEP 2: Next in rotation = LEGS
-STEP 3: Legs has no injury concern
-RESULT: Today = LEGS
-
-Analysis: "User follows Legs→Pull→Push rotation. Last workout was Push (chest) on Jan 26.
-Today is LEGS. Last legs session (Jan 24): Squats 270-280lbs x 6.
-Note: Chest/shoulders need rest due to shoulder discomfort from Jan 26."
-
-WRONG: "Focus on chest workout with attention to shoulder" ← IGNORES ROTATION
-WRONG: "Retry chest since you failed 82kg" ← Failed sets don't change rotation
-RIGHT: Follow rotation (Legs), reference last legs session, note injury needs rest
-
-=== SAME-SESSION COMPARISON (CRITICAL) ===
-Find the LAST TIME user did this muscle group. Compare and suggest improvements.
-
-BAD: "Complete a legs workout today"
-GOOD: "Legs day. Last legs (Jan 24): Squats 280lbs x 6 felt heavy after watching reels.
-Today: Start with lighter warm-up (225lbs x 8) to prime CNS before working sets.
-You did 280lbs last time - aim for 285lbs if warm-up feels good."
 
 === FAILURE ANALYSIS ===
 If user failed sets, explain WHY with mechanics:
@@ -441,23 +311,6 @@ RIGHT (detailed):
 - Pattern: After alcohol night before, grip strength notably weaker
 - Pattern: Skipping meals before gym leads to early fatigue (set 3+ drops significantly)"
 
-=== todaysPlan EXAMPLES ===
-
-❌ WRONG todaysPlan.summary:
-"Complete a chest workout focusing on compound movements."
-
-✓ RIGHT todaysPlan.summary:
-"LEGS DAY (rotation: Jan 24 Legs → Jan 25 Back → Jan 26 Chest → TODAY LEGS)
-
-Last legs session (Jan 24): Squats 280lbs x 6 felt heavy after scrolling phone between sets.
-Today's plan:
-1. Squats: Start 250lbs x 8 warm-up, work to 285lbs x 5 (attempt +5lbs from last time)
-2. Leg Press: 400lbs x 10,10,8 (same as last time, focus on depth)
-3. RDL: 185lbs x 8,8,8 (last time grip failed - use straps)
-4. Leg Curls: 3x12 (new addition for hamstring isolation)
-
-Recovery note: You had shoulder discomfort after chest yesterday - won't affect legs but avoid holding bar too narrow on squats."
-
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                       ADDICTION SESSION RULES                                 ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -479,32 +332,60 @@ GOOD: "Craving pattern analysis:
 Triggers: Emotional conflict (#1), Boredom (#2), Work stress (#3)
 What works: Cold water (2/3), Walking (2/2)
 High-risk times: 9-10pm
-Today's plan: Have cold water ready, plan a walk after work, avoid phone if argument happens."
+Today: Have cold water ready, plan a walk after work, avoid phone if argument happens."
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                       TODAY'S PLAN REQUIREMENTS                               ║
+║                    HISTORY BRIEFINGS (CRITICAL OUTPUT)                        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-todaysPlan MUST include:
+This is the coach's reference manual for today's session. Build DETAILED briefings
+so the coach can handle ANY situation.
 
-FOR GYM:
-1. ROTATION: State the split (PPL/Upper-Lower/Bro/etc.) and what today should be
-2. INJURY CHECK: If any discomfort → test protocol + pivot option
-3. WHAT to do: Specific muscle group with exercises from their history
-4. SAME-SESSION COMPARISON: Reference last time they did this muscle
-5. IMPROVEMENTS: What to do differently based on last session's issues
+=== FOR GYM SESSIONS ===
+Create one briefing per exercise relevant to today's session.
+Priority order for choosing which exercises to brief:
+1. If TODAY'S WORKOUT lists specific exercises → brief EACH one
+2. If TODAY'S WORKOUT lists muscle groups but no exercises → find exercises from history
+   that target THOSE muscle groups and brief those. ONLY brief exercises for the listed
+   muscle groups — do NOT brief exercises for other muscle groups.
+3. If no TODAY'S WORKOUT section → brief exercises from the most recent 3 workouts
 
-FOR DIET:
-1. WHAT to eat (specific foods from their history)
-2. WHY (deficit/surplus, compensation for yesterday)
-3. TRIGGER AVOIDANCE (what situations to avoid based on binge patterns)
+Each exercise briefing MUST include:
+- label: Exercise name (e.g., "Barbell Bench Press")
+- type: "exercise"
+- fullHistory: EVERY session this exercise was done, with:
+  - Date, weights, reps per set (e.g., "Feb 5: 80kg x 8,8,6")
+  - What happened before (sleep, stress, meals)
+  - What happened after (soreness, fatigue, mood)
+  - Coach notes from that session if any
+- linkedPatterns: ALL patterns from the knowledge graph that involve this exercise
+- linkedInsights: ALL insights/interpretations that mention this exercise
+- keyTakeaways: 2-3 sentences the coach needs for TODAY
 
-FOR ADDICTION:
-1. HIGH-RISK TIMES today (based on patterns)
-2. COPING STRATEGIES that worked before
-3. TRIGGER AVOIDANCE plan
+=== FOR DIET SESSIONS ===
+Create one briefing per recent day (last 5-7 days).
 
-The coach reading this knows NOTHING. Give them everything they need to help this specific user today.
+Each day briefing MUST include:
+- label: "Day label (date)" (e.g., "Yesterday (Feb 7)")
+- type: "daily_recap"
+- fullHistory: Complete day of eating:
+  - Every meal with foods and approximate macros
+  - What was skipped
+  - What derailed the diet (triggers, events, emotions)
+  - Whether targets were hit or missed
+- linkedPatterns: Patterns that played out that day (binge triggers, skipped meals, etc.)
+- linkedInsights: Insights about why the day went well/poorly
+- keyTakeaways: What the coach should learn from this day for TODAY
+
+=== FOR ADDICTION/GENERAL SESSIONS ===
+Create briefings per behavioral topic (e.g., "Evening Cravings", "Stress Response").
+
+=== QUALITY REQUIREMENTS ===
+- fullHistory MUST contain RAW DATA — actual numbers, foods, weights, not summaries
+- linkedPatterns MUST cite evidence (e.g., "seen 4x", "high confidence")
+- linkedInsights MUST reference specific events that support them
+- Minimum 3 briefings per session, more if data exists
+- Each fullHistory should be 100-300 words minimum
 
 ═══════════════════════════════════════════════════════════════════════════════
                               ANALYSIS TASKS
@@ -572,14 +453,10 @@ What affects performance?
 - Negative: alcohol, poor sleep, stress, arguments
 - How many times observed?
 
-=== 5. CREATE TODAY'S PLAN ===
+=== 5. BUILD HISTORY BRIEFINGS ===
 
-Follow the rules above for your session type. Remember:
-- Reference the LAST TIME user did this specific activity
-- Include specific metrics (weights, calories, times)
-- Explain the reasoning based on their data
-- Account for injuries/discomfort
-- Account for emotional factors from recent events
+Follow the HISTORY BRIEFINGS rules above for your session type.
+This output is critical — it's what the coach reads to understand the user's history.
 
 === 6. WRITE DETAILED COACH BRIEFING ===
 
@@ -664,65 +541,20 @@ For each recurring problem:
 DO NOT SUMMARIZE. The coach needs ALL the details.
 
 === INPUT SECTIONS EXPLAINED ===
-- TODAY'S DATE: Use this to determine correct rotation and timing
+- TODAY'S DATE: Use this for timing context
 - SESSION NAME/GOAL: What this session is about
 - USER PROFILE (UOM): Their goals, targets, preferences
 - TODAY'S EVENTS: What they've already done today
-- YESTERDAY: What happened yesterday (critical for rotation)
-- RECENT DAILY HISTORY: Last 7 days (for patterns)
+- YESTERDAY: What happened yesterday
+- RECENT DAILY HISTORY: Last 7 days (for patterns and briefings)
 - HISTORICAL EVENTS: Past events relevant to this session
 
 === OUTPUT ===
 Return JSON matching the schema exactly. Every field is required.
 If you don't have data for a field, use empty array [] or appropriate defaults.
 For coachBriefing fields with no data, write "(No data available yet)"
-For emotionalFactors, whatWorkedBefore, rootCauses with no data, use empty arrays [].`;
-
-/**
- * Detect muscle group from a review summary using broad exercise→muscle keyword mapping.
- * Covers exercise names that don't contain the literal muscle-group word
- * (e.g. "Bench Press" → CHEST, "Deadlift" → BACK).
- */
-function detectMuscleGroupFromReview(summary: string): string {
-  const lower = summary.toLowerCase();
-
-  const groups: Record<string, string[]> = {
-    'CHEST/PUSH': [
-      'chest', 'bench', 'push-up', 'pushup', 'push up', 'push day', 'push session',
-      'incline db', 'incline dumbbell', 'decline', 'flye', 'fly', 'cable cross', 'pec', 'dip',
-    ],
-    'BACK/PULL': [
-      'back', 'pull-up', 'pullup', 'pull up', 'pull day', 'pull session', 'pulldown', 'lat pull',
-      'deadlift', 'row', 'barbell row', 'dumbbell row', 'cable row', 'face pull',
-      'chin-up', 'chinup', 'chin up', 't-bar',
-    ],
-    'LEGS': [
-      'leg', 'squat', 'lower', 'lunge', 'leg press', 'leg curl', 'leg extension',
-      'calf', 'rdl', 'romanian', 'hip thrust', 'hamstring', 'quad', 'glute',
-    ],
-    'SHOULDERS': [
-      'shoulder', 'ohp', 'overhead press', 'military press',
-      'lateral raise', 'front raise', 'rear delt', 'shrug',
-    ],
-    'ARMS': [
-      'arm', 'bicep', 'tricep', 'curl', 'hammer curl',
-      'skull crusher', 'tricep pushdown', 'preacher',
-    ],
-  };
-
-  let bestGroup = 'UNKNOWN';
-  let bestScore = 0;
-
-  for (const [group, keywords] of Object.entries(groups)) {
-    const score = keywords.filter(kw => lower.includes(kw)).length;
-    if (score > bestScore) {
-      bestScore = score;
-      bestGroup = group;
-    }
-  }
-
-  return bestGroup;
-}
+For emotionalFactors, whatWorkedBefore, rootCauses with no data, use empty arrays [].
+For historyBriefings with no data, use empty array [].`;
 
 /**
  * Format knowledge into structured input for the universal analyzer
@@ -740,45 +572,44 @@ export function formatKnowledgeForAnalysis(
     todaysEvents?: { id: string; content: string; occurredAt: string }[];
     yesterdaysReview?: { id: string; type: string; summary: string; periodKey: string };
   },
-  trackerType?: TrackerType
+  trackerType?: TrackerType,
+  dietTargets?: { tdee: number; calories: number; protein: number; carbs: number; fat: number; goal: string; proteinPerKg: number; weightKg: number },
+  gymWorkoutContext?: { workoutName: string; muscleGroups: string[]; exerciseNames: string[] }
 ): string {
   const sections: string[] = [];
 
-  // TODAY'S DATE - CRITICAL for rotation logic - Make it VERY prominent
+  // TODAY'S DATE - Make it prominent for timing context
   const today = new Date().toISOString().split('T')[0];
   sections.push(`╔══════════════════════════════════════════════════════════════════════════════╗`);
   sections.push(`║                         TODAY'S DATE: ${today}                            ║`);
   sections.push(`╚══════════════════════════════════════════════════════════════════════════════╝`);
-  sections.push(`Plan for TODAY (${today}). Most recent workout was YESTERDAY or earlier.`);
+  sections.push(`Analyze data relative to TODAY (${today}).`);
   sections.push('');
 
-  // For gym sessions, add ROTATION SUMMARY section at the top
+  // For gym sessions: workout-specific context when user has selected a workout
   if (trackerType === 'gym') {
-    const dailyReviews = knowledge.reviews
-      .filter((r) => r.type === 'daily' || r.periodKey.match(/^\d{4}-\d{2}-\d{2}$/))
-      .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
-      .slice(0, 5);
-
-    if (dailyReviews.length > 0) {
-      sections.push(`╔══════════════════════════════════════════════════════════════════════════════╗`);
-      sections.push(`║              WORKOUT ROTATION (ANALYZE THIS FIRST FOR GYM)                   ║`);
-      sections.push(`╚══════════════════════════════════════════════════════════════════════════════╝`);
-      sections.push(`Last 5 workouts with their muscle groups:`);
-      sections.push('');
-
-      // Extract muscle group keywords from each review summary
-      for (const review of dailyReviews) {
-        const muscleGroup = detectMuscleGroupFromReview(review.summary);
-
-        // Extract first line or first 100 chars of summary for exercises
-        const exercisePreview = review.summary.split('\n')[0].substring(0, 100);
-        sections.push(`- ${review.periodKey}: ${muscleGroup} - ${exercisePreview}`);
+    if (gymWorkoutContext) {
+      // User has already selected their workout — give targeted context
+      sections.push(`╔═══════════════════════════════════════════╗`);
+      sections.push(`║  TODAY'S WORKOUT: ${gymWorkoutContext.workoutName.padEnd(22)}║`);
+      sections.push(`╚═══════════════════════════════════════════╝`);
+      if (gymWorkoutContext.muscleGroups.length > 0) {
+        sections.push(`Muscle Groups: ${gymWorkoutContext.muscleGroups.join(', ')}`);
       }
-
+      if (gymWorkoutContext.exerciseNames.length > 0) {
+        sections.push(`Exercises: ${gymWorkoutContext.exerciseNames.join(', ')}`);
+      }
       sections.push('');
-      sections.push(`→ ANALYZE the pattern above to determine TODAY's muscle group`);
-      sections.push(`→ Today MUST be DIFFERENT from the most recent workout's muscle group`);
-      sections.push(`→ Include ROTATION VALIDATION in your context field`);
+      sections.push(`→ User has ALREADY chosen their workout. Do NOT suggest a different one.`);
+      sections.push(`→ Analyze past sessions of THIS muscle group/workout type.`);
+      sections.push(`→ Focus on: exercise progression, PRs, volume trends, weak points.`);
+      if (gymWorkoutContext.exerciseNames.length > 0) {
+        sections.push(`→ Build detailed exercise briefings for each listed exercise.`);
+      } else if (gymWorkoutContext.muscleGroups.length > 0) {
+        sections.push(`→ No specific exercises listed yet, but the TARGET MUSCLE GROUPS are: ${gymWorkoutContext.muscleGroups.join(', ')}`);
+        sections.push(`→ Build briefings for exercises from history that target these muscle groups.`);
+        sections.push(`→ ALL briefings MUST be for exercises involving: ${gymWorkoutContext.muscleGroups.join(', ')}. Do NOT brief exercises for other muscle groups.`);
+      }
       sections.push('');
     }
   }
@@ -793,6 +624,20 @@ export function formatKnowledgeForAnalysis(
   if (knowledge.userBaseline) {
     sections.push(`=== USER PROFILE (Goals, Targets, Preferences) ===`);
     sections.push(knowledge.userBaseline);
+    sections.push('');
+  }
+
+  // Diet targets (computed from user's diet goal profile)
+  if (dietTargets) {
+    const deficit = dietTargets.calories - dietTargets.tdee;
+    const deficitLabel = deficit < 0 ? `cutting: ${deficit}` : deficit > 0 ? `bulking: +${deficit}` : 'maintenance';
+    sections.push(`=== DIET TARGETS (User's computed goals — treat as hard constraints) ===`);
+    sections.push(`TDEE: ${dietTargets.tdee} cal`);
+    sections.push(`Daily Target: ${dietTargets.calories} cal (${deficitLabel})`);
+    sections.push(`Protein: ${dietTargets.protein}g (${dietTargets.proteinPerKg}g/kg at ${dietTargets.weightKg}kg)`);
+    sections.push(`Carbs: ${dietTargets.carbs}g`);
+    sections.push(`Fat: ${dietTargets.fat}g`);
+    sections.push(`Goal: ${dietTargets.goal.replace(/_/g, ' ')}`);
     sections.push('');
   }
 

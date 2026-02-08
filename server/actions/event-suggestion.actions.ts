@@ -24,6 +24,11 @@ import {
 } from '@/server/prompts/tracker-prompts';
 import { executeGymCoachAgent, type LastLoggedSet } from '@/server/agents/gym-coach-agent';
 import { executeDietCoachAgent, type LastLoggedFood } from '@/server/agents/diet-coach-agent';
+import { getKnownExercises, getExerciseLibraryForCoach } from '@/server/actions/exercise-library.actions';
+import type { ExerciseLibrarySummary } from '@/server/actions/exercise-library.actions';
+import { getRecentSessionInsights } from '@/server/actions/gym-history.actions';
+import { expandMuscleGroups } from '@/lib/gym/muscle-groups';
+import type { MuscleGroup } from '@/lib/sessions/types';
 import type { PRSummary } from '@/lib/sessions/types';
 
 /**
@@ -104,7 +109,19 @@ const EQUIPMENT_TYPE_ENUM = [
 const MUSCLE_GROUP_ENUM = [
   'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
   'quadriceps', 'hamstrings', 'glutes', 'calves', 'abs', 'obliques',
-  'lower_back', 'traps', 'lats', 'full_body'
+  'lower_back', 'traps', 'lats', 'full_body',
+  'upper_chest', 'mid_chest', 'lower_chest',
+  'upper_traps', 'mid_traps', 'lower_traps', 'rhomboids', 'teres_major', 'spinal_erectors',
+  'front_delts', 'side_delts', 'rear_delts',
+  'biceps_long_head', 'biceps_short_head', 'brachialis',
+  'triceps_long_head', 'triceps_lateral_head', 'triceps_medial_head',
+  'forearm_flexors', 'forearm_extensors', 'brachioradialis',
+  'glute_max', 'glute_medius', 'glute_minimus',
+  'rectus_femoris', 'vastus_lateralis', 'vastus_medialis', 'vastus_intermedius',
+  'biceps_femoris', 'semitendinosus', 'semimembranosus',
+  'adductors', 'adductor_longus', 'adductor_magnus', 'adductor_brevis', 'gracilis',
+  'gastrocnemius', 'soleus', 'tibialis_anterior',
+  'upper_abs', 'lower_abs', 'transverse_abdominis',
 ];
 const SET_TYPE_ENUM = [
   'warmup', 'working', 'top', 'backoff', 'dropset', 'superset',
@@ -518,7 +535,10 @@ export async function generateEventSuggestion(
   currentWorkoutLog?: WorkoutLog,
   currentDietLog?: DietLog,
   lastLoggedSet?: LastLoggedSet,
-  lastLoggedFood?: LastLoggedFood
+  lastLoggedFood?: LastLoggedFood,
+  workoutPlanContext?: string,
+  dietHistoryContext?: string,
+  dayPlanContext?: string
 ): Promise<EventSuggestionResult | { error: string }> {
   await requireUser();
 
@@ -604,6 +624,35 @@ export async function generateEventSuggestion(
       // Create empty workout log if none exists
       const workoutLog: WorkoutLog = currentWorkoutLog || createEmptyWorkoutLog();
 
+      // Fetch user's known exercises and past session insights for agent context
+      let knownExercises;
+      try {
+        knownExercises = await getKnownExercises();
+        console.log('[generateEventSuggestion] Known exercises:', knownExercises.length);
+      } catch (e) {
+        console.warn('[generateEventSuggestion] Failed to fetch known exercises:', e);
+      }
+
+      let pastInsights;
+      try {
+        pastInsights = await getRecentSessionInsights(8);
+        console.log('[generateEventSuggestion] Past insights:', pastInsights.length);
+      } catch (e) {
+        console.warn('[generateEventSuggestion] Failed to fetch past insights:', e);
+      }
+
+      // Fetch filtered exercise library for coach context (target muscles + synergists)
+      let exerciseLibrarySummary: ExerciseLibrarySummary[] | undefined;
+      if (workoutLog.muscleGroups?.length) {
+        try {
+          const expandedGroups = expandMuscleGroups(workoutLog.muscleGroups as MuscleGroup[]);
+          exerciseLibrarySummary = await getExerciseLibraryForCoach(expandedGroups);
+          console.log('[generateEventSuggestion] Exercise library summaries:', exerciseLibrarySummary.length, 'for muscles:', expandedGroups.join(', '));
+        } catch (e) {
+          console.warn('[generateEventSuggestion] Failed to fetch exercise library:', e);
+        }
+      }
+
       // Build previous messages for context - include BOTH user messages AND coach responses
       // This gives the coach full conversation awareness for coherent interactions
       const previousChatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
@@ -630,7 +679,11 @@ export async function generateEventSuggestion(
         previousChatMessages,
         analysis,
         cyclePhase,
-        lastLoggedSet
+        lastLoggedSet,
+        workoutPlanContext,
+        knownExercises,
+        pastInsights,
+        exerciseLibrarySummary
       );
 
       // Return the result
@@ -680,7 +733,9 @@ export async function generateEventSuggestion(
         previousChatMessages,
         analysis,
         cyclePhase,
-        lastLoggedFood
+        lastLoggedFood,
+        dietHistoryContext,
+        dayPlanContext
       );
 
       // Return the result

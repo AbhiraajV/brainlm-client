@@ -62,6 +62,10 @@ export const TEMPLATE_COACH_TOOLS: FunctionTool[] = [
                   type: 'string',
                   description: 'Normalized exercise name with equipment prefix (e.g., "Barbell Bench Press")'
                 },
+                globalExerciseId: {
+                  type: 'number',
+                  description: 'ID from the exercise catalog. Use this when an exercise catalog is provided in the prompt.'
+                },
                 muscleGroup: {
                   type: 'string',
                   enum: MUSCLE_GROUPS,
@@ -150,9 +154,11 @@ export const TEMPLATE_COACH_TOOLS: FunctionTool[] = [
  */
 export interface GeneratedExercise {
   exerciseName: string;
+  globalExerciseId?: number;
   muscleGroup: MuscleGroup;
   secondaryMuscles?: MuscleGroup[];
   equipmentType: EquipmentType;
+  exerciseRegistryId?: string;
   targetSets: number;
   targetReps: number;
   targetWeight?: number;

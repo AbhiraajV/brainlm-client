@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { EventFeed, DateRangeFilter, AnalysisStats } from "@/components/event-feed";
-import { GoToSessionsButton } from "@/components/sessions";
+import { SessionsDrawer } from "@/components/sessions/SessionsDrawer";
 import { SleepMorningPrompt } from "@/components/sleep/SleepMorningPrompt";
 import { SleepBedtimeButton } from "@/components/sleep/SleepBedtimeButton";
 
@@ -24,8 +24,8 @@ export default async function Page() {
             <SleepMorningPrompt />
             <SleepBedtimeButton />
 
-            {/* Fixed sessions button - bottom left */}
-            <GoToSessionsButton />
+            {/* Sessions drawer - bottom right */}
+            <SessionsDrawer />
         </>
     );
 }

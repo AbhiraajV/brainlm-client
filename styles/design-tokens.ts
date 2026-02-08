@@ -37,6 +37,7 @@ export const designTokens = {
   fonts: {
     sans: "var(--font-sans)",
     serif: "var(--font-serif)",
+    display: "var(--font-display)",
   },
 
   // Mobile-first type scale (base 18px)

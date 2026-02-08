@@ -147,7 +147,7 @@ export async function getEventsPage({
     limit?: number
     dateFilter?: DateFilter
 }): Promise<{
-    events: Array<{ id: string; content: string; createdAt: Date; occurredAt: Date | null }>
+    events: Array<{ id: string; content: string; createdAt: Date; occurredAt: Date | null; trackedType: string | null }>
     nextCursor?: string
 }> {
     const user = await requireUser();
@@ -178,7 +178,8 @@ export async function getEventsPage({
             id: true,
             content: true,
             createdAt: true,
-            occurredAt: true
+            occurredAt: true,
+            trackedType: true
         }
     });
 

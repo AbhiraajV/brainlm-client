@@ -94,7 +94,9 @@ function buildSystemPrompt(
   currentDietLog: DietLog,
   analysis?: SessionAnalysis,
   cyclePhase?: MenstrualCycleInfo,
-  lastLoggedFood?: LastLoggedFood
+  lastLoggedFood?: LastLoggedFood,
+  dietHistoryContext?: string,
+  dayPlanContext?: string
 ): string {
   const dietContext = currentDietLog.meals.length > 0
     ? formatDietLogForPrompt(currentDietLog)
@@ -112,25 +114,22 @@ ${cyclePhase.currentPhase === 'ovulation' ? '⚡ Peak energy - great time for me
 `
     : '';
 
-  // Build comprehensive user context - put history first and most prominent
-  const todaysPlanText = typeof analysis?.todaysPlan === 'string'
-    ? analysis.todaysPlan
-    : analysis?.todaysPlan?.summary || '';
-
-  const todaysPlanItems = typeof analysis?.todaysPlan === 'object' && analysis?.todaysPlan?.items
-    ? analysis.todaysPlan.items.map(i => `- ${i.suggestion} (${i.rationale})`).join('\n')
-    : '';
+  // Build comprehensive user context - put day-by-day briefings first and most prominent
+  const dayBriefings = analysis?.historyBriefings?.length
+    ? analysis.historyBriefings.map(b =>
+        `### ${b.label}\n${b.fullHistory}\nPatterns: ${b.linkedPatterns.join('; ')}\nInsights: ${b.linkedInsights.join('; ')}\nKey: ${b.keyTakeaways}`
+      ).join('\n\n')
+    : '(No daily briefings available)';
 
   const userContext = analysis ? `
-## NUTRITION HISTORY - REFERENCE THIS FOR EVERY FOOD LOGGED
-${analysis.context || '(No history available)'}
-
-## TODAY'S PLAN
-${todaysPlanText}
-${todaysPlanItems}
+## DAY-BY-DAY HISTORY — REFERENCE THIS FOR COACHING CONTEXT
+${dayBriefings}
 
 ## RECENT DIET SESSIONS
 ${analysis.relevantHistory?.map(h => `${h.date}: ${h.event}`).join('\n') || '(No history)'}
+
+## ADDITIONAL CONTEXT
+${analysis.context || '(No additional context)'}
 ` : '';
 
   // Build deep coaching context from analysis - this gives the coach the WHY behind the user's eating patterns
@@ -233,7 +232,7 @@ CURRENT SESSION (TODAY — this is what you modify with tools)
 ════════════════════════════════════════
 ${dietContext}
 
-## DAILY TARGETS
+${dietHistoryContext ? `${dietHistoryContext}\n` : ''}${dayPlanContext ? `${dayPlanContext}\n` : ''}## DAILY TARGETS
 - Calories: ${currentDietLog.targets.calories}
 - Protein: ${currentDietLog.targets.protein}g
 - Carbs: ${currentDietLog.targets.carbs}g
@@ -542,7 +541,9 @@ export async function executeDietCoachAgent(
   previousMessages: ChatMessage[] = [],
   analysis?: SessionAnalysis,
   cyclePhase?: MenstrualCycleInfo,
-  lastLoggedFood?: LastLoggedFood
+  lastLoggedFood?: LastLoggedFood,
+  dietHistoryContext?: string,
+  dayPlanContext?: string
 ): Promise<DietCoachAgentResult> {
   if (!OPENAI_API_KEY) {
     return {
@@ -556,7 +557,7 @@ export async function executeDietCoachAgent(
   // Create empty diet log if none exists
   const dietLog = currentDietLog || createEmptyDietLog();
 
-  const systemPrompt = buildSystemPrompt(brainTransfer, dietLog, analysis, cyclePhase, lastLoggedFood);
+  const systemPrompt = buildSystemPrompt(brainTransfer, dietLog, analysis, cyclePhase, lastLoggedFood, dietHistoryContext, dayPlanContext);
 
   // Build message history
   const messages: ChatMessage[] = [
