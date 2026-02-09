@@ -175,69 +175,6 @@ export async function analyzeSession(
   }
 }
 
-/**
- * Summarize a SessionAnalysis into a compact representation for LLM input.
- * Sends ~70% fewer tokens than the full JSON.
- */
-export function summarizeAnalysis(analysis: SessionAnalysis): string {
-  const sections: string[] = [];
-
-  sections.push(`Session type: ${analysis.sessionType}`);
-  sections.push(`Generated: ${analysis.generatedAt}`);
-
-  // Pattern names + trends (not full descriptions)
-  if (analysis.patterns.length > 0) {
-    sections.push(`\nExisting patterns (${analysis.patterns.length}):`);
-    for (const p of analysis.patterns) {
-      sections.push(`- "${p.name}" [${p.trend}, ${p.confidence}] — ${p.evidence.length} evidence items`);
-    }
-  }
-
-  // History briefing labels (not full content)
-  if (analysis.historyBriefings && analysis.historyBriefings.length > 0) {
-    sections.push(`\nExisting briefings (${analysis.historyBriefings.length}):`);
-    for (const b of analysis.historyBriefings) {
-      sections.push(`- "${b.label}" [${b.type}] — ${b.linkedPatterns.length} patterns, ${b.linkedInsights.length} insights`);
-    }
-  }
-
-  // Correlation summaries
-  if (analysis.correlations.length > 0) {
-    sections.push(`\nExisting correlations (${analysis.correlations.length}):`);
-    for (const c of analysis.correlations) {
-      sections.push(`- "${c.factor}" → ${c.impact} [${c.direction}, ${c.occurrences}x]`);
-    }
-  }
-
-  // Coach briefing section lengths (not full text)
-  if (analysis.coachBriefing) {
-    sections.push(`\nCoach briefing sections:`);
-    for (const [key, val] of Object.entries(analysis.coachBriefing)) {
-      sections.push(`- ${key}: ${(val as string).length} chars`);
-    }
-  }
-
-  // History count
-  sections.push(`\nHistory entries: ${analysis.relevantHistory.length}`);
-  if (analysis.relevantHistory.length > 0) {
-    const latest = analysis.relevantHistory[0];
-    sections.push(`Latest: [${latest.date}] ${latest.event.slice(0, 100)}...`);
-  }
-
-  // Emotional factors count
-  if (analysis.emotionalFactors && analysis.emotionalFactors.length > 0) {
-    sections.push(`Emotional factors: ${analysis.emotionalFactors.length}`);
-  }
-  if (analysis.whatWorkedBefore && analysis.whatWorkedBefore.length > 0) {
-    sections.push(`What worked before: ${analysis.whatWorkedBefore.length}`);
-  }
-  if (analysis.rootCauses && analysis.rootCauses.length > 0) {
-    sections.push(`Root causes: ${analysis.rootCauses.length}`);
-  }
-
-  return sections.join('\n');
-}
-
 // JSON Schema for the delta output
 const ANALYSIS_DELTA_SCHEMA = {
   type: 'object',
