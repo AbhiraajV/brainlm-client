@@ -15,14 +15,18 @@ import { HabitCalendarView } from '@/components/sessions/HabitCalendarView';
 import { SuggestedDiet } from '@/components/sessions/SuggestedDiet';
 import { PRCelebration } from '@/components/sessions/PRCelebration';
 import { generateEventSuggestion } from '@/server/actions/event-suggestion.actions';
+import { generateCoachResponse } from '@/server/actions/coach.actions';
 import { completeSession } from '@/server/actions/session-complete.actions';
 import { fetchRecentDietHistory } from '@/server/actions/diet-history.actions';
 import { generateDietDayPlan } from '@/server/actions/diet-daily-plan.actions';
 import { computeDietHistorySummary, formatDietHistoryForPrompt, formatDayPlanForPrompt, formatDietProfileForPrompt } from '@/lib/diet/history-utils';
 import { BackButton } from '@/components/ui/BackButton';
+import { FixedInputContainer } from '@/components/ui/FixedInputContainer';
 import { useTodaysEventsFromCache } from '@/hooks/useTodaysEventsFromCache';
 import type { EventDraft, Session, TrackerType, WorkoutLog, DietLog, DietDayPlan, DietHistoryDay, HabitLog, PRSummary, DailyTargets } from '@/lib/sessions/types';
-import type { LastLoggedSet } from '@/server/agents/gym-coach-agent';
+import type { LastLoggedSet } from '@/server/agents/gym-tracker-agent';
+import type { LastLoggedFood } from '@/server/agents/diet-tracker-agent';
+import { TrackerInput } from '@/components/sessions/TrackerInput';
 import { DietCoachFirstMessage } from '@/components/sessions/DietCoachFirstMessage';
 import { TodaysMealPlanCard } from '@/components/sessions/TodaysMealPlanCard';
 import { generateTodaysMealPlan, type SOSContext } from '@/server/actions/diet-meal-plan.actions';
@@ -292,7 +296,10 @@ function SessionDetailInner() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [prsDetected, setPrsDetected] = useState<PRSummary[]>([]);
   const [lastLoggedSet, setLastLoggedSet] = useState<LastLoggedSet | null>(null);
-  const [activeTab, setActiveTab] = useState<'coach' | 'workout' | 'insights' | 'habit' | 'history'>('coach');
+  const [lastLoggedFood, setLastLoggedFoodState] = useState<LastLoggedFood | null>(null);
+  const [activeTab, setActiveTab] = useState<'coach' | 'workout' | 'insights' | 'habit' | 'history'>('workout');
+  const [trackerProcessing, setTrackerProcessing] = useState(false);
+  const [trackerStatus, setTrackerStatus] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [dietHistoryContext, setDietHistoryContext] = useState<string | null>(null);
   const [dayPlanContext, setDayPlanContext] = useState<string | null>(null);
   const [dietWeekHistory, setDietWeekHistory] = useState<DietHistoryDay[]>([]);
@@ -316,6 +323,189 @@ function SessionDetailInner() {
     const plan = store.plans[templateId];
     return plan ? formatPlanForPrompt(plan) : undefined;
   })();
+
+  // Handle tracker input submission (workout/diet tab — data only, no coaching)
+  const handleTrackerSubmit = useCallback(async (text: string) => {
+    if (!session || trackerProcessing) return;
+
+    setTrackerProcessing(true);
+    setTrackerStatus(null);
+
+    // Add event draft to store for history tracking
+    const addEventDraft = useSessionsStore.getState().addEventDraft;
+    const eventId = addEventDraft(session.id, text);
+
+    // Get fresh session after adding event
+    const freshSession = useSessionsStore.getState().sessions.find(s => s.id === session.id);
+    if (!freshSession) {
+      setTrackerProcessing(false);
+      return;
+    }
+
+    // Build previous events for context
+    const previousEvents = freshSession.events
+      .filter(e => e.id !== eventId)
+      .slice(-10)
+      .map(e => ({ content: e.content, createdAt: e.createdAt, llmComment: e.llmComment }));
+
+    try {
+      const result = await generateEventSuggestion(
+        session.id,
+        eventId,
+        text,
+        previousEvents,
+        freshSession.title,
+        freshSession.sessionContext || freshSession.analysis?.userGoals || '',
+        'Tracker',
+        '',  // No domain knowledge for tracker
+        freshSession.trackerType || 'general',
+        freshSession.masterSummary,
+        undefined,  // todaysEvents
+        undefined,  // yesterdaysReview
+        undefined,  // todaysPlan
+        undefined,  // cyclePhase
+        undefined,  // analysis - not needed for tracker
+        freshSession.workoutLog,
+        freshSession.dietLog,
+        lastLoggedSet ?? undefined,
+        lastLoggedFood ?? undefined,
+        planContextForCoach,
+        dietHistoryContext ?? undefined,
+        dayPlanContext ?? undefined
+      );
+
+      if ('comment' in result) {
+        // Parse structured logs
+        let workoutLog: WorkoutLog | undefined;
+        let dietLog: DietLog | undefined;
+
+        if (result.workoutLogJson) {
+          try { workoutLog = JSON.parse(result.workoutLogJson); } catch {}
+        }
+        if (result.dietLogJson) {
+          try { dietLog = JSON.parse(result.dietLogJson); } catch {}
+        }
+
+        // Resolve exercise registry IDs
+        if (workoutLog?.exercises) {
+          const registry = useExercisesStore.getState();
+          for (const ex of workoutLog.exercises) {
+            if (!ex.exerciseRegistryId) {
+              const def = registry.resolveExercise(ex.exerciseName, ex.muscleGroup, ex.equipmentType);
+              ex.exerciseRegistryId = def.id;
+            }
+          }
+          const firstUnresolved = workoutLog.exercises.find(e => e.needsResolution);
+          if (firstUnresolved) {
+            setUnresolvedExercise(firstUnresolved);
+          }
+        }
+
+        // Update store with structured data
+        const setEventLlmCommentFn = useSessionsStore.getState().setEventLlmComment;
+        setEventLlmCommentFn(
+          session.id,
+          eventId,
+          result.comment,
+          'completed',
+          undefined,
+          result.masterSummary,
+          workoutLog,
+          dietLog
+        );
+
+        // Show PR celebration
+        if (result.prsDetected && result.prsDetected.length > 0) {
+          setPrsDetected(result.prsDetected);
+        }
+
+        // Update last logged set/food for continuity
+        if (result.lastLoggedSet) {
+          setLastLoggedSet(result.lastLoggedSet);
+        }
+        if (result.lastLoggedFood) {
+          setLastLoggedFoodState(result.lastLoggedFood);
+        }
+
+        // Show status based on tracker response
+        const response = result.comment;
+        if (response === 'OK' || response.startsWith('OK')) {
+          setTrackerStatus({ message: 'Logged', type: 'success' });
+        } else if (response === 'NO_DATA') {
+          setTrackerStatus({ message: 'No data found — try the Coach tab for questions', type: 'info' });
+        } else {
+          // Clarification question from tracker
+          setTrackerStatus({ message: response, type: 'info' });
+        }
+      } else {
+        setTrackerStatus({ message: result.error || 'Failed to process', type: 'error' });
+        useSessionsStore.getState().setEventLlmComment(session.id, eventId, null, 'failed', result.error);
+      }
+    } catch (err) {
+      console.error('[handleTrackerSubmit] Error:', err);
+      setTrackerStatus({ message: 'Network error — try again', type: 'error' });
+      useSessionsStore.getState().setEventLlmComment(session.id, eventId, null, 'failed', 'Network error');
+    } finally {
+      setTrackerProcessing(false);
+      // Auto-clear status after 3 seconds
+      setTimeout(() => setTrackerStatus(null), 3000);
+    }
+  }, [session, trackerProcessing, lastLoggedSet, lastLoggedFood, planContextForCoach, dietHistoryContext, dayPlanContext]);
+
+  // Handle coach chat submission (coach tab — conversational, no data mutation)
+  const handleCoachSubmit = useCallback(async (text: string) => {
+    if (!session) return;
+
+    const addEventDraft = useSessionsStore.getState().addEventDraft;
+    const eventId = addEventDraft(session.id, text);
+    const setEventLlmCommentFn = useSessionsStore.getState().setEventLlmComment;
+    setEventLlmCommentFn(session.id, eventId, null, 'generating');
+
+    // Build previous coach messages
+    const freshSession = useSessionsStore.getState().sessions.find(s => s.id === session.id);
+    if (!freshSession) return;
+
+    const previousCoachMessages: { role: 'user' | 'assistant'; content: string }[] = [];
+    for (const e of freshSession.events.filter(e => e.id !== eventId).slice(-10)) {
+      previousCoachMessages.push({ role: 'user', content: e.content });
+      if (e.llmComment) {
+        previousCoachMessages.push({ role: 'assistant', content: e.llmComment });
+      }
+    }
+
+    // Build current session summary for coach context
+    let currentSessionSummary: string | undefined;
+    if (freshSession.trackerType === 'gym' && freshSession.workoutLog) {
+      const w = freshSession.workoutLog;
+      currentSessionSummary = `Today's workout: ${w.workoutName || 'Unnamed'}, ${w.exercises.length} exercises, ${w.summary.totalSets} sets, ${w.summary.totalVolume}${w.summary.totalVolumeUnit} volume`;
+    } else if (freshSession.trackerType === 'diet' && freshSession.dietLog) {
+      const d = freshSession.dietLog;
+      currentSessionSummary = `Today's diet: ${d.meals.length} meals, ${d.summary.progress.consumed.calories}/${d.targets.calories} cal, ${d.summary.progress.consumed.protein}/${d.targets.protein}g protein`;
+    }
+
+    const domainKnowledge = freshSession.analysis?.context || freshSession.understanding?.content || '';
+
+    try {
+      const result = await generateCoachResponse(
+        freshSession.trackerType || 'general',
+        text,
+        domainKnowledge,
+        previousCoachMessages,
+        freshSession.analysis,
+        currentSessionSummary,
+        freshSession.knowledge?.cyclePhase,
+      );
+
+      if ('comment' in result) {
+        setEventLlmCommentFn(session.id, eventId, result.comment, 'completed');
+      } else {
+        setEventLlmCommentFn(session.id, eventId, null, 'failed', result.error);
+      }
+    } catch (err) {
+      console.error('[handleCoachSubmit] Error:', err);
+      setEventLlmCommentFn(session.id, eventId, null, 'failed', 'Network error');
+    }
+  }, [session]);
 
   // Generate LLM suggestion for an event
   const generateSuggestion = useCallback(async (eventId: string, session: Session) => {
@@ -990,7 +1180,7 @@ function SessionDetailInner() {
 
       <div className="min-h-screen flex flex-col bg-[var(--color-bg)] overflow-x-hidden">
         {/* Main content */}
-        <main className={`flex-1 container-padding overflow-x-hidden ${session.trackerType === 'habit' ? 'pb-8' : 'pb-48'}`}>
+        <main className={`flex-1 container-padding overflow-x-hidden ${session.trackerType === 'habit' ? 'pb-8' : 'pb-24'}`}>
           {/* Session Info Card - combines title, goal, coach, knowledge, context */}
           <SessionInfoCard
             sessionId={session.id}
@@ -1093,19 +1283,19 @@ function SessionDetailInner() {
                   </button>
                 </div>
 
-                {/* Tab buttons */}
+                {/* Tab buttons — Diet first (data), then Coach, then Insights */}
                 <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] sticky top-0 z-10">
                   <TabBar
                     tabs={[
                       {
-                        id: 'coach',
-                        icon: <MessageSquare className="w-4 h-4" />,
-                        badge: session.events.length > 0 ? session.events.length : undefined,
-                      },
-                      {
                         id: 'workout',
                         icon: <Utensils className="w-4 h-4" />,
                         badge: session.dietLog?.meals?.length || undefined,
+                      },
+                      {
+                        id: 'coach',
+                        icon: <MessageSquare className="w-4 h-4" />,
+                        badge: session.events.length > 0 ? session.events.length : undefined,
                       },
                       {
                         id: 'insights',
@@ -1119,32 +1309,7 @@ function SessionDetailInner() {
 
                 {/* Tab content - full width */}
                 <div className="-mx-5 sm:-mx-7 overflow-hidden">
-                  {/* Coach Tab */}
-                  <div className={activeTab === 'coach' ? 'block' : 'hidden'}>
-                    {session.events.length > 0 ? (
-                      <div className="divide-y divide-[var(--color-line)]">
-                        {session.events.map((event) => (
-                          <EventDraftRow
-                            key={event.id}
-                            event={event}
-                            sessionId={session.id}
-                            onRetry={handleRetry}
-                            onDelete={handleDelete}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-16 px-5">
-                        <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                        <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
-                        <p className="text-sm text-[var(--color-muted)] mt-1">
-                          Log your first meal below
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Diet Tab */}
+                  {/* Diet Tab (default — data-first) */}
                   <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
                     <DietCoachFirstMessage
                       recommendation={pendingRecommendation}
@@ -1215,6 +1380,31 @@ function SessionDetailInner() {
                       editable={true}
                       onUpdate={(updatedDiet) => setDietLog(session.id, updatedDiet)}
                     />
+                  </div>
+
+                  {/* Coach Tab (separate chat interface) */}
+                  <div className={activeTab === 'coach' ? 'block' : 'hidden'}>
+                    {session.events.length > 0 ? (
+                      <div className="divide-y divide-[var(--color-line)]">
+                        {session.events.map((event) => (
+                          <EventDraftRow
+                            key={event.id}
+                            event={event}
+                            sessionId={session.id}
+                            onRetry={handleRetry}
+                            onDelete={handleDelete}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-16 px-5">
+                        <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
+                        <p className="font-serif text-lg text-[var(--color-text)]">Ask your coach</p>
+                        <p className="text-sm text-[var(--color-muted)] mt-1">
+                          Questions, advice, meal ideas — your coach knows your history
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Insights Tab */}
@@ -1311,19 +1501,19 @@ function SessionDetailInner() {
                   </button>
                 </div>
 
-                {/* Tab buttons */}
+                {/* Tab buttons — Workout first (data), then Coach, then Insights */}
                 <div className="-mx-5 sm:-mx-7 bg-[var(--color-surface)] sticky top-0 z-10">
                   <TabBar
                     tabs={[
                       {
-                        id: 'coach',
-                        icon: <MessageSquare className="w-4 h-4" />,
-                        badge: session.events.length > 0 ? session.events.length : undefined,
-                      },
-                      {
                         id: 'workout',
                         icon: <Dumbbell className="w-4 h-4" />,
                         badge: session.workoutLog?.exercises?.length || undefined,
+                      },
+                      {
+                        id: 'coach',
+                        icon: <MessageSquare className="w-4 h-4" />,
+                        badge: session.events.length > 0 ? session.events.length : undefined,
                       },
                       {
                         id: 'insights',
@@ -1337,7 +1527,16 @@ function SessionDetailInner() {
 
                 {/* Tab content - full width */}
                 <div className="-mx-5 sm:-mx-7 overflow-hidden">
-                  {/* Coach Tab */}
+                  {/* Workout Tab (default — data-first) */}
+                  <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
+                    <WorkoutLogCard
+                      workoutLog={session.workoutLog}
+                      editable={true}
+                      onUpdate={(updatedWorkout) => setWorkoutLog(session.id, updatedWorkout)}
+                    />
+                  </div>
+
+                  {/* Coach Tab (separate chat interface) */}
                   <div
                     className={`
                     ${activeTab === 'coach' ? 'block' : 'hidden'}
@@ -1358,21 +1557,12 @@ function SessionDetailInner() {
                     ) : (
                       <div className="flex flex-col items-center justify-center py-16 px-5">
                         <MessageSquare className="w-12 h-12 text-[var(--color-line)] mb-4" />
-                        <p className="font-serif text-lg text-[var(--color-text)]">No coach comments yet</p>
+                        <p className="font-serif text-lg text-[var(--color-text)]">Ask your coach</p>
                         <p className="text-sm text-[var(--color-muted)] mt-1">
-                          Log your first exercise below
+                          Questions, advice, form checks — your coach knows your history
                         </p>
                       </div>
                     )}
-                  </div>
-
-                  {/* Workout Tab */}
-                  <div className={activeTab === 'workout' ? 'block' : 'hidden'}>
-                    <WorkoutLogCard
-                      workoutLog={session.workoutLog}
-                      editable={true}
-                      onUpdate={(updatedWorkout) => setWorkoutLog(session.id, updatedWorkout)}
-                    />
                   </div>
 
                   {/* Insights Tab */}
@@ -1470,25 +1660,32 @@ function SessionDetailInner() {
             )}
         </main>
 
-        {/* Fixed EventInput at bottom (hidden for habit tracker) */}
+        {/* Fixed input at bottom — conditional based on tab and tracker type */}
         {session.trackerType !== 'habit' && (
-          <div
-            className="
-              fixed bottom-0 left-0 right-0 z-20
-              px-5 sm:px-7 py-4
-              bg-[var(--color-bg)]
-              border-t border-[var(--color-line)]
-            "
-          >
-            <div className="max-w-2xl mx-auto">
+          <FixedInputContainer>
+            {/* On workout/diet tab for gym/diet sessions: TrackerInput (data only) */}
+            {(session.trackerType === 'gym' || session.trackerType === 'diet') && activeTab === 'workout' ? (
+              <TrackerInput
+                sessionId={session.id}
+                trackerType={session.trackerType}
+                isProcessing={trackerProcessing}
+                onSubmit={handleTrackerSubmit}
+                statusMessage={trackerStatus?.message}
+                statusType={trackerStatus?.type}
+              />
+            ) : activeTab === 'coach' ? (
+              /* On coach tab: SessionEventInput for coach chat */
+              <SessionEventInput sessionId={session.id} onSubmitOverride={handleCoachSubmit} />
+            ) : (
+              /* On insights tab or non-gym/diet sessions: default SessionEventInput */
               <SessionEventInput sessionId={session.id} />
-            </div>
-          </div>
+            )}
+          </FixedInputContainer>
         )}
 
         {/* Back button (uses browser history for instant nav) */}
         <BackButton className="
-          fixed bottom-28 left-6
+          fixed bottom-20 left-6
           z-20
           w-12 h-12
           flex items-center justify-center

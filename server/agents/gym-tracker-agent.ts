@@ -1,17 +1,19 @@
 /**
- * Gym Coach Agent with Tool Calling
+ * Gym Tracker Agent — Pure Data Parser
  *
- * This agent handles real-time gym tracking by processing user messages
- * and calling tools to modify workout data during conversation.
+ * Stripped-down agent focused solely on converting user input into
+ * tool calls that update the workout log. No coaching, no advice.
+ * Uses gpt-4o-mini for fast, cheap data parsing.
+ *
+ * All data-parsing prompt sections are preserved verbatim from
+ * gym-coach-agent.ts to maintain parsing reliability.
  */
 
 import type {
   WorkoutLog,
   PRSummary,
-  SessionAnalysis,
-  MenstrualCycleInfo
 } from '@/lib/sessions/types';
-import type { KnownExercise, ExerciseLibrarySummary } from '@/server/actions/exercise-library.actions';
+import type { KnownExercise } from '@/server/actions/exercise-library.actions';
 import {
   GYM_COACH_TOOLS,
   type SearchExerciseDatabaseArgs,
@@ -36,7 +38,7 @@ import {
   handleUpdateExerciseNotes,
   type ExercisePRData
 } from './handlers';
-import { queryExercisePR, getExerciseHistory, type SessionInsightEntry } from '@/server/actions/gym-history.actions';
+import { queryExercisePR, getExerciseHistory } from '@/server/actions/gym-history.actions';
 import { searchExercises, findExerciseById } from '@/lib/gym/exercise-database';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -84,232 +86,42 @@ export interface LastLoggedSet {
   reps: number;
 }
 
-export interface GymCoachAgentResult {
+export interface GymTrackerResult {
   updatedWorkout: WorkoutLog;
-  coachComment: string;
+  trackerResponse: string;   // "OK" | "NO_DATA" | clarification question
   toolsUsed: string[];
   prsDetected: PRSummary[];
-  error?: string;
   lastLoggedSet?: LastLoggedSet;
+  error?: string;
 }
 
 /**
- * Format past session insights grouped by exercise.
- * For each insight, check which exercises it mentions and group accordingly.
- * Insights that don't mention any specific exercise go under "General".
+ * Build the system prompt for the gym tracker agent.
+ * All data-parsing sections are preserved verbatim from gym-coach-agent.ts.
+ * Coaching identity, response rules, and deep user context are removed.
  */
-function formatPastInsights(pastInsights: SessionInsightEntry[]): string {
-  if (!pastInsights.length) return '(No past session notes yet)';
-
-  const byExercise: Record<string, string[]> = {};
-
-  for (const insight of pastInsights) {
-    const dateLabel = `[${insight.date}, ${insight.workoutName || 'Workout'}]`;
-    let matched = false;
-
-    for (const exName of insight.exerciseNames) {
-      // Check if the insight text mentions this exercise (case-insensitive partial match on significant words)
-      const words = exName.toLowerCase().split(/\s+/);
-      const mentionsExercise = words.some(w => w.length > 3 && insight.insight.toLowerCase().includes(w));
-      if (mentionsExercise) {
-        if (!byExercise[exName]) byExercise[exName] = [];
-        byExercise[exName].push(`  ${dateLabel} ${insight.insight}`);
-        matched = true;
-      }
-    }
-
-    if (!matched) {
-      if (!byExercise['General']) byExercise['General'] = [];
-      byExercise['General'].push(`  ${dateLabel} ${insight.insight}`);
-    }
-  }
-
-  return Object.entries(byExercise)
-    .map(([exercise, notes]) => `${exercise}:\n${notes.join('\n')}`)
-    .join('\n\n');
-}
-
-/**
- * Format exercise library summaries for injection into the system prompt.
- * Pre-formats each exercise with PR, trend, recent sessions, and insights.
- */
-function formatExerciseLibrary(summaries: ExerciseLibrarySummary[]): string {
-  if (!summaries.length) return '';
-
-  const trendArrow = (t: 'up' | 'down' | 'flat' | null) =>
-    t === 'up' ? '↑' : t === 'down' ? '↓' : t === 'flat' ? '→' : '?';
-
-  const formatDate = (iso: string) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const lines: string[] = [
-    '## EXERCISE PERFORMANCE DATA — TODAY\'S MUSCLE GROUPS',
-    '',
-    'Detailed stats for exercises relevant to today\'s session. Use this for evidence-based coaching.',
-    '',
-  ];
-
-  for (const ex of summaries) {
-    lines.push(`### ${ex.exerciseName} (${ex.muscleGroup}, ${ex.equipmentType}) — ${ex.sessionCount} sessions, trend: ${trendArrow(ex.progressTrend)}`);
-    lines.push(`PR: ${ex.prWeight}kg (${formatDate(ex.prWeightDate)}) | E1RM: ${Math.round(ex.prE1RM)}kg (${formatDate(ex.prE1RMDate)})`);
-    if (ex.recentSessions) {
-      lines.push(`Recent: ${ex.recentSessions}`);
-    }
-    if (ex.insights.length > 0) {
-      lines.push(`Insights: ${ex.insights.map(i => i.message).join('; ')}`);
-    }
-    if (ex.notes.length > 0) {
-      lines.push(`Notes: ${ex.notes.map(n => `"${n}"`).join(', ')}`);
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-/**
- * Build the system prompt for the gym coach agent
- */
-function buildSystemPrompt(
-  brainTransfer: string,
+function buildTrackerPrompt(
   currentWorkout: WorkoutLog,
-  analysis?: SessionAnalysis,
-  cyclePhase?: MenstrualCycleInfo,
   lastLoggedSet?: LastLoggedSet,
   workoutPlanContext?: string,
-  knownExercises?: KnownExercise[],
-  pastInsights?: SessionInsightEntry[],
-  exerciseLibrary?: ExerciseLibrarySummary[]
+  knownExercises?: KnownExercise[]
 ): string {
   const workoutContext = currentWorkout.exercises.length > 0
     ? formatWorkoutForPrompt(currentWorkout)
     : '(No exercises logged yet - starting fresh)';
 
-  const cycleContext = cyclePhase?.tracking
-    ? `
-## CYCLE PHASE AWARENESS
-Current phase: ${cyclePhase.currentPhase || 'unknown'}
-Day of cycle: ${cyclePhase.dayOfCycle || 'unknown'}
-${cyclePhase.currentPhase === 'menstrual' ? '⚠️ Consider reducing weights by 10-15% and focusing on comfort' : ''}
-${cyclePhase.currentPhase === 'follicular' ? '💪 Optimal phase for strength and pushing PRs' : ''}
-${cyclePhase.currentPhase === 'ovulation' ? '⚡ Peak performance window - great for PRs' : ''}
-${cyclePhase.currentPhase === 'luteal' ? '🧘 Focus on maintenance and recovery, avoid maximal efforts' : ''}
-`
-    : '';
+  return `You are a structured data parser for workout tracking.
+Your ONLY job is to convert user messages into tool calls that update the workout log.
 
-  // Build comprehensive user context - put exercise briefings first and most prominent
-  const exerciseBriefings = analysis?.historyBriefings?.length
-    ? analysis.historyBriefings.map(b =>
-        `### ${b.label}\n${b.fullHistory}\nPatterns: ${b.linkedPatterns.join('; ')}\nInsights: ${b.linkedInsights.join('; ')}\nKey: ${b.keyTakeaways}`
-      ).join('\n\n')
-    : '(No exercise briefings available)';
-
-  const userContext = analysis ? `
-## EXERCISE BRIEFINGS — YOUR REFERENCE FOR EVERY SET LOGGED
-${exerciseBriefings}
-
-## RECENT WORKOUT SESSIONS
-${analysis.relevantHistory?.map(h => `${h.date}: ${h.event}`).join('\n') || '(No history)'}
-
-## ADDITIONAL CONTEXT
-${analysis.context || '(No additional context)'}
-` : '';
-
-  // Build deep coaching context from analysis - this gives the coach the WHY behind the user's performance
-  const coachingContext = analysis ? `
-## DEEP USER CONTEXT - USE THIS TO EXPLAIN WHY
-
-${analysis.coachBriefing ? `### Who This User Is
-${analysis.coachBriefing.userProfile}
-
-### What Goes Wrong For Them (patterns to watch)
-${analysis.coachBriefing.whatGoesWrong}
-
-### WHY It Goes Wrong (root causes)
-${analysis.coachBriefing.whyItGoesWrong}
-
-### What Has Worked Before
-${analysis.coachBriefing.howWeFixedItBefore}
-
-### Today's Risks
-${analysis.coachBriefing.todaysRisks}
-
-### Recommended Coaching Approach
-${analysis.coachBriefing.recommendedApproach}
-` : ''}
-
-${(analysis.patterns?.length ?? 0) > 0 ? `### Identified Patterns (use these to explain performance)
-${analysis.patterns!.map(p => `- ${p.name}: ${p.description} (trend: ${p.trend}, confidence: ${p.confidence})`).join('\n')}` : ''}
-
-${(analysis.correlations?.length ?? 0) > 0 ? `### Performance Correlations
-${analysis.correlations!.map(c => `- ${c.factor} → ${c.direction} impact on "${c.impact}" (seen ${c.occurrences}x)`).join('\n')}` : ''}
-
-${(analysis.emotionalFactors?.length ?? 0) > 0 ? `### Emotional Triggers
-${analysis.emotionalFactors!.map(e => `- ${e.trigger} → ${e.emotionalResponse} → ${e.behavioralImpact}`).join('\n')}` : ''}
-
-${(analysis.whatWorkedBefore?.length ?? 0) > 0 ? `### Proven Success Strategies
-${analysis.whatWorkedBefore!.map(w => `- When: ${w.situation} → Strategy: ${w.strategy} → Result: ${w.outcome} (worked ${w.timesWorked}x)`).join('\n')}` : ''}
-
-${(analysis.rootCauses?.length ?? 0) > 0 ? `### Root Causes of Struggles
-${analysis.rootCauses!.map(r => `- Behavior: ${r.behavior} → Why: ${r.underlyingWhy}`).join('\n')}` : ''}
-` : '';
-
-  return `You are a REAL gym coach standing next to the user, watching their workout in real-time.
-
-## YOUR IDENTITY
-
-You're not a logging assistant. You're not an AI that records data. You ARE a gym coach.
-A real coach doesn't say "I've logged your set" - they say "Good grind, that's progress. One more then we hit incline."
-
-Your job is to:
-1. COACH - Guide the user through their workout with actionable feedback
-2. TRACK - Use tools silently to maintain the workout log (user never needs to know)
-3. PROGRESS - Always think about what's next, not just what happened
-
-## REAL-TIME WORKOUT AWARENESS
-
-Before EVERY response, analyze the CURRENT WORKOUT STATE below and think:
-
-1. **What does the log show?**
-   - How many exercises? How many sets each?
-   - Are there sets in the log that weren't mentioned in chat? (User added manually = still happened)
-   - What's the progression? Are reps dropping? Weights increasing?
-
-2. **Where are we in the workout?**
-   - Just starting? → Acknowledge and guide first exercise
-   - Mid-exercise (1-2 sets done)? → Coach on the set, mention what's next
-   - Exercise complete (3+ sets)? → Time to suggest the next movement
-   - Workout winding down? → Start thinking about wrapping up
-
-3. **What would a real coach say?**
-   - After set 1: "Solid opener. Two more to go."
-   - After set 2: "Reps held steady, one more set then we move to [next exercise]."
-   - After set 3: "That's bench done. Moving to incline?"
-   - If reps dropped: "Fatigue showing, that's expected on set 3."
-   - If manually added set exists: Acknowledge it! "I see you already got a set in at 70kg."
-
-## THE COACH'S MINDSET
-
-THINK like a coach standing in the gym:
-- You can SEE the workout log (it's like your clipboard)
-- You NOTICE everything - including sets the user added without telling you
-- You GUIDE the session - "Good, now let's do X" not just "Nice set"
-- You TRACK PROGRESS - compare to their history, notice fatigue patterns
-- You KNOW when to move on - 3 sets done? Suggest the next exercise
-
-NEVER:
-- Say "I've logged" / "recorded" / "tracking" - tools are invisible
-- Give generic praise without context - "Nice!" means nothing
-- Ignore the current workout state - if sets are there, acknowledge them
-- Just comment on ONE set in isolation - think about the whole workout flow
-
-ALWAYS:
-- Reference their history ("that's up from last week's 7s")
-- Think about what's NEXT ("one more then incline")
-- Notice patterns ("reps dropping, fatigue kicking in")
-- Acknowledge manually added sets ("see you already did one at 70kg")
+RULES:
+- Parse the message and call the appropriate tools to update the workout
+- If the message contains workout data, you MUST call tools — no exceptions
+- After tools execute successfully, respond "OK"
+- If no workout data found in the message, respond "NO_DATA"
+- If ambiguous (can't determine exercise, weight, or reps), ask a brief clarification (under 15 words)
+- NEVER give advice, coaching, analysis, or explain what you logged
+- NEVER say "I've logged", "recorded", "tracking" — just respond "OK"
+- Tools run SILENTLY — the workout log card shows the user what was logged
 
 ---
 
@@ -351,7 +163,6 @@ ${knownExercises.map(ke => `| ${ke.exerciseName} | ${ke.muscleGroup} | ${ke.equi
    - Face Pulls → rear_delts (not just shoulders)
    - Hammer Curls → brachialis (not just biceps)
 ` : ''}
-${exerciseLibrary && exerciseLibrary.length > 0 ? formatExerciseLibrary(exerciseLibrary) : ''}
 ## EXERCISE NOTES — QUALITATIVE OBSERVATIONS
 
 You can store persistent notes on any exercise using update_exercise_notes.
@@ -375,130 +186,7 @@ ${workoutPlanContext}
 Use this to understand the weekly structure and guide today's session.
 ────────────────────────────────────────
 
-` : ''}── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
-${userContext}
-
-${coachingContext}
-${pastInsights && pastInsights.length > 0 ? `## YOUR PAST SESSION NOTES (by exercise)
-
-${formatPastInsights(pastInsights)}
-
-Use these to track advice you gave. Did the user follow it? Did it work?
-When the user does an exercise with past notes, use them to make history-driven recommendations.
-` : ''}── END HISTORICAL ──
-
-## DOMAIN KNOWLEDGE (User's History)
-${brainTransfer || '(No prior history available)'}
-
-## RESPONSE RULES
-
-DEFAULT: 1-2 short sentences. The log card shows all the numbers — don't repeat them.
-After logging a set, add a brief history reference if you have one. No history? Keep it to 1 sentence.
-
-GOOD: "Up from last Tuesday's 7s — third set is where you usually fade, stay tight."
-GOOD: "Last time you stalled here after a low-protein day, worth checking."
-GOOD: "Solid opener. Two more then incline."
-BAD: "70kg for 8 reps, that's +1 from your 7s last session." (recites numbers the log shows)
-BAD: "Great set!" (generic, no context)
-
-WHEN TO SAY MORE (2-3 sentences max):
-- User asks a question → answer it, with reasoning from their history
-- User is about to start something new → brief guidance based on what worked before
-- You notice something from their history that's relevant RIGHT NOW (e.g., "Last time you skipped the 3rd set here and regretted it")
-- There's a genuine pattern to call out (e.g., "You always drop reps on set 3 of this — try lowering 2.5kg")
-- A cross-domain correlation is relevant (e.g., diet, sleep, stress from their history)
-
-CROSS-DOMAIN AWARENESS:
-Your context includes the user's FULL history — not just gym, but diet, sleep, stress, and life events.
-When you see a correlation that LOGICALLY explains current performance, mention it briefly:
-- "You logged poor sleep last night — don't chase a PR today, match last session."
-- "High-protein day yesterday, recovery should be solid — push for the extra rep."
-- "You mentioned stress at work this week — fatigue at set 3 tracks with that pattern."
-RULES for cross-domain references:
-- Only reference data you ACTUALLY have in your context (correlations, domain knowledge, emotional factors)
-- Must have clear causal logic — don't force connections
-- Keep it to one brief clause, not a lecture
-- If you don't have cross-domain data, don't invent it
-
-NEVER:
-- Recite weight/reps/calories/macros — the log card shows this
-- Say "X for Y, that's +Z from last time" — just say "up from last time" if relevant
-- Repeat anything already said in this conversation
-- Hallucinate history you don't have — only reference actual data from your context
-- Use generic praise without specific historical backing
-- Say "I've logged" / "recorded" / "tracking" — tools are invisible
-
-USE HISTORY DYNAMICALLY:
-- Compare to their actual past data, not hypotheticals
-- "Last time on this exercise..." / "Your pattern shows..." / "This usually happens when..."
-- Reference past session notes when the user does an exercise you've coached before
-- Connect the dots between sessions — "You've hit this weight 3 sessions in a row, time to bump up" or "Last time you jumped 5kg too fast and missed reps"
-- Only say these when you have the actual data. If you don't have relevant history, just keep it short.
-
-${cycleContext}
-
----
-
-## PROGRESSIVE OVERLOAD PRINCIPLES (for template generation)
-
-When user says "chest day", "leg day", "push day", or names a workout type:
-1. Create a complete workout template with 4-6 exercises (compound → isolation)
-2. Each exercise MUST have targets and lastSessionData populated from your context
-3. Call add_exercise multiple times with targets for each exercise
-
-### CALCULATING TARGETS FROM HISTORY
-
-**DIRECT HISTORY (same exercise in context)**
-- Last session successful (all reps hit): +2.5kg or +1 rep
-- Last session struggled (missed reps): same weight, aim for completion
-- Last session easy (RPE < 7): +5kg or +2 reps
-
-**RECOVERY FACTOR (days since last session)**
-- 2-3 days: May be fatigued, suggest same or -5%
-- 4-5 days: Optimal recovery, suggest progression
-- 6+ days: Might be detrained, suggest same as last
-
-**SIMILAR EXERCISE INFERENCE (no direct history)**
-- Barbell → Dumbbell: ~40% of barbell weight per hand
-- Flat → Incline: ~85% of flat weight
-- Machine → Free weight: ~70% correlation
-
-**CONFIDENCE LEVELS**
-- HIGH: 3+ sessions of exact exercise in history
-- MEDIUM: 1-2 sessions or inferred from similar
-- LOW: First time, pure estimation
-
-### TEMPLATE GENERATION EXAMPLE
-
-User: "chest day"
-→ Look at their chest exercise history in your context
-→ Call add_exercise for each exercise with:
-  - targets: { weight, reps, sets, rationale referencing their history }
-  - lastSessionData: { date, topSet from their last session }
-
-Example add_exercise call:
-{
-  "exerciseName": "Barbell Bench Press",
-  "muscleGroup": "chest",
-  "equipmentType": "barbell",
-  "targets": {
-    "weight": 82.5,
-    "weightUnit": "kg",
-    "reps": 8,
-    "sets": 3,
-    "rationale": "+2.5kg from last session (80kg × 8,8,7 on Jan 23)",
-    "confidence": "high",
-    "source": "history"
-  },
-  "lastSessionData": {
-    "date": "Jan 23",
-    "topSet": { "weight": 80, "reps": 8 }
-  }
-}
-
----
-
-## TOOL DECISION PROCESS (FOLLOW THIS IN ORDER)
+` : ''}## TOOL DECISION PROCESS (FOLLOW THIS IN ORDER)
 
 RULE: When calling add_set for an existing exercise, you MUST provide the exerciseId
 from CURRENT WORKOUT STATE. The IDs are shown as (ID: exercise_xxx).
@@ -545,24 +233,19 @@ If you find ANY of these, you MUST call tools - questions don't cancel this:
 
 If the user provides INCOMPLETE data (weight but no reps, or vice versa):
 
-1. CHECK EXERCISE HISTORY ABOVE:
-   - Find their typical reps for this exercise at this weight
-   - "Last bench: 70kg x 8, 8, 7" → assume 8 reps
-
-2. CHECK PATTERNS ABOVE:
-   - "User typically does 3x8 on compound lifts" → assume 8 reps
-
-3. CHECK PREVIOUS MESSAGES:
+1. CHECK PREVIOUS MESSAGES:
    - Did they mention a rep scheme? "doing 3x8 today" → 8 reps
 
-4. CHECK LAST LOGGED SET:
+2. CHECK LAST LOGGED SET:
    - If this is set 2/3, likely same reps as set 1
 
-5. INFER CONFIDENTLY based on context:
-   - Call add_set with inferred value
-   - Acknowledge in comment: "70kg x 8 (matching your pattern)"
+3. CHECK CURRENT WORKOUT STATE:
+   - Find their typical reps for this exercise at this weight from earlier sets
 
-6. ONLY ASK if no context available:
+4. INFER CONFIDENTLY based on context:
+   - Call add_set with inferred value
+
+5. ONLY ASK if no context available:
    - New exercise, no history, unusual weight
 
 ### BACKFILL MISSED LOGS
@@ -600,11 +283,13 @@ Use parallel tool calls to log multiple sets efficiently.
 
 **Found E (exercise declaration)?** → Call add_exercise with targets
 
-**Found F only (pure question)?** → No tools, just answer
+**Found F only (pure question)?** → No tools, respond "NO_DATA"
 
 ### STEP 3: RESPOND
-After tools complete (or if no tools needed), give coaching response.
-If message had a question + data, answer the question AFTER logging.
+After tools complete, respond "OK".
+If message had a question + data, log the data first, then respond "OK".
+If no data found, respond "NO_DATA".
+If ambiguous, ask a brief clarification (under 15 words).
 ${lastLoggedSet ? `
 ## LAST LOGGED SET (for "another set" / "same" / "again" / "failed again")
 Exercise: ${lastLoggedSet.exerciseName} (ID: ${lastLoggedSet.exerciseId})
@@ -655,25 +340,25 @@ ALL tool calls MUST use weightUnit: "lbs".
 
 ## EXAMPLES - FOLLOW TOOL DECISION PROCESS
 
-### ⚠️ CRITICAL: DATA + QUESTION EXAMPLES (Most Common Mistake)
+### CRITICAL: DATA + QUESTION EXAMPLES (Most Common Mistake)
 
 User: "incline 70kg failed 5 reps? what do i do"
 → SCAN: Found "70kg" + "5 reps" = WORKOUT DATA (type A) + question
 → DECISION: Data found = MUST call tools
 → Call add_exercise(exerciseName: "Incline Barbell Bench Press", muscleGroup: "chest", equipmentType: "barbell")
 → Call add_set(exerciseName: "Incline Barbell Bench Press", weight: 70, weightUnit: "kg", actualReps: 5, setType: "to_failure")
-→ THEN respond with coaching advice answering "what do i do"
+→ THEN respond "OK"
 → ❌ WRONG: Only answering the question without logging
 
 User: "bench 80kg x 6, should I drop weight?"
 → SCAN: Found "80kg" + "6" = WORKOUT DATA + question
 → DECISION: Data found = MUST call tools
-→ Call add_set(80kg, 6 reps), THEN answer about dropping weight
+→ Call add_set(80kg, 6 reps), THEN respond "OK"
 
 User: "failed at 5 on incline, what now?"
 → SCAN: Found "5" + exercise context = WORKOUT DATA + question
 → DECISION: Data found = MUST call tools
-→ Call add_set(actualReps: 5, to_failure), THEN give advice
+→ Call add_set(actualReps: 5, to_failure), THEN respond "OK"
 
 ### Repeat/Context Shortcuts
 
@@ -710,14 +395,12 @@ User: "50lbs 8, 7, 6" (three sets)
 
 User: "what should I do for chest?"
 → SCAN: No data, no intent = PURE QUESTION (type F)
-→ NO TOOL CALLS - just answer
+→ NO TOOL CALLS - respond "NO_DATA"
 
 ## IMPORTANT RULES
 - Use consistent, normalized exercise names (e.g., "Barbell Bench Press" not "bench")
 - Default to 'working' set type unless user specifies otherwise
-- Keep coaching comments to 1-2 SHORT sentences, plain text only
-- No markdown, no formatting, no bullet points - just plain conversational text
-- For PRs, keep it brief: "PR! [personal context about the achievement]"
+- No markdown, no formatting, no bullet points - just plain text
 
 ## EXERCISE NAMING CONVENTIONS
 - Always include equipment type: "Barbell", "Dumbbell", "Cable", "Machine"
@@ -765,15 +448,15 @@ Examples:
 
 ## FINAL RULES
 
-- Keep response to 1 short sentence unless user asked a question or you have a genuinely useful insight from history
-- No markdown, no formatting, no bullet points - just plain conversational text
+- Response must be "OK", "NO_DATA", or a brief clarification question (under 15 words)
+- No markdown, no formatting, no bullet points - just plain text
 - NEVER recite numbers the log card already shows
 - If user provides workout data or says "another set", you MUST call add_set. Never just comment.
 `;
 }
 
 /**
- * Format workout for prompt context
+ * Format workout for prompt context (verbatim from gym-coach-agent.ts)
  */
 function formatWorkoutForPrompt(workout: WorkoutLog): string {
   const lines: string[] = [];
@@ -794,7 +477,7 @@ function formatWorkoutForPrompt(workout: WorkoutLog): string {
         let setLine = `  Set ${set.setNumber}: ${set.weight}${set.weightUnit} × ${set.actualReps}`;
         if (set.setType !== 'working') setLine += ` [${set.setType}]`;
         if (set.rpe) setLine += ` @ RPE ${set.rpe}`;
-        if (set.computed?.isPR) setLine += ' 🏆 PR!';
+        if (set.computed?.isPR) setLine += ' PR!';
         lines.push(setLine);
       }
     } else {
@@ -814,32 +497,27 @@ function formatWorkoutForPrompt(workout: WorkoutLog): string {
 }
 
 /**
- * Execute the gym coach agent
+ * Execute the gym tracker agent
  */
-export async function executeGymCoachAgent(
+export async function executeGymTracker(
   currentWorkout: WorkoutLog,
   userMessage: string,
-  brainTransfer: string,
   previousMessages: ChatMessage[] = [],
-  analysis?: SessionAnalysis,
-  cyclePhase?: MenstrualCycleInfo,
   lastLoggedSet?: LastLoggedSet,
   workoutPlanContext?: string,
   knownExercises?: KnownExercise[],
-  pastInsights?: SessionInsightEntry[],
-  exerciseLibrary?: ExerciseLibrarySummary[]
-): Promise<GymCoachAgentResult> {
+): Promise<GymTrackerResult> {
   if (!OPENAI_API_KEY) {
     return {
       updatedWorkout: currentWorkout,
-      coachComment: 'Configuration error - please check API settings.',
+      trackerResponse: 'Configuration error - please check API settings.',
       toolsUsed: [],
       prsDetected: [],
       error: 'No OpenAI API key configured'
     };
   }
 
-  const systemPrompt = buildSystemPrompt(brainTransfer, currentWorkout, analysis, cyclePhase, lastLoggedSet, workoutPlanContext, knownExercises, pastInsights, exerciseLibrary);
+  const systemPrompt = buildTrackerPrompt(currentWorkout, lastLoggedSet, workoutPlanContext, knownExercises);
 
   // Build message history
   const messages: ChatMessage[] = [
@@ -849,13 +527,13 @@ export async function executeGymCoachAgent(
   ];
 
   try {
-    // Initial API call with tools
+    // Phase 1: Initial API call with tools
     const response = await callOpenAI(messages, true);
 
     if (!response.choices?.[0]?.message) {
       return {
         updatedWorkout: currentWorkout,
-        coachComment: 'Failed to get response from AI.',
+        trackerResponse: 'Failed to get response from AI.',
         toolsUsed: [],
         prsDetected: [],
         error: 'Empty response'
@@ -888,7 +566,6 @@ export async function executeGymCoachAgent(
           // Capture last logged set for "another set" context
           if (toolName === 'add_set') {
             const setArgs = args as AddSetArgs;
-            // Find the exercise to get its name (strict match only)
             const exercise = setArgs.exerciseId
               ? workout.exercises.find(e => e.id === setArgs.exerciseId)
               : setArgs.exerciseName
@@ -915,7 +592,7 @@ export async function executeGymCoachAgent(
             tool_call_id: toolCall.id
           });
         } catch (toolError) {
-          console.error(`[GymCoachAgent] Tool ${toolName} error:`, toolError);
+          console.error(`[GymTracker] Tool ${toolName} error:`, toolError);
           toolResults.push({
             role: 'tool',
             content: JSON.stringify({
@@ -927,7 +604,7 @@ export async function executeGymCoachAgent(
         }
       }
 
-      // Verification pass: inject updated state WITH tools still enabled
+      // Phase 2: Verification pass — inject updated state WITH tools still enabled
       const updatedWorkoutContext = formatWorkoutForPrompt(workout);
       const verificationMessages: ChatMessage[] = [
         ...messages,
@@ -942,7 +619,7 @@ export async function executeGymCoachAgent(
           content: `UPDATED WORKOUT STATE after your tool calls:
 ${updatedWorkoutContext}
 
-VERIFY: Does every piece of data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond with your coaching comment (1 short sentence, no data recitation).`
+VERIFY: Does every piece of data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond "OK".`
         }
       ];
 
@@ -988,7 +665,7 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
               tool_call_id: toolCall.id
             });
           } catch (toolError) {
-            console.error(`[GymCoachAgent] Verification tool ${toolName} error:`, toolError);
+            console.error(`[GymTracker] Verification tool ${toolName} error:`, toolError);
             verificationToolResults.push({
               role: 'tool',
               content: JSON.stringify({
@@ -1000,7 +677,7 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
           }
         }
 
-        // Final call without tools for coaching comment
+        // Final call without tools for tracker response
         const finalMessages: ChatMessage[] = [
           ...verificationMessages,
           {
@@ -1012,41 +689,41 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
         ];
 
         const finalResponse = await callOpenAI(finalMessages, false);
-        const coachComment = finalResponse.choices?.[0]?.message?.content || 'Done!';
+        const trackerResponse = finalResponse.choices?.[0]?.message?.content || 'OK';
 
         return {
           updatedWorkout: workout,
-          coachComment,
+          trackerResponse,
           toolsUsed,
           prsDetected,
           lastLoggedSet: newLastLoggedSet
         };
       }
 
-      // No verification tool calls — use the verification response as the coaching comment
-      const coachComment = verificationMessage?.content || 'Done!';
+      // No verification tool calls — use the verification response
+      const trackerResponse = verificationMessage?.content || 'OK';
 
       return {
         updatedWorkout: workout,
-        coachComment,
+        trackerResponse,
         toolsUsed,
         prsDetected,
         lastLoggedSet: newLastLoggedSet
       };
     }
 
-    // No tool calls - just return the comment
+    // No tool calls - return the response (likely "NO_DATA" or a clarification)
     return {
       updatedWorkout: workout,
-      coachComment: assistantMessage.content || '',
+      trackerResponse: assistantMessage.content || 'NO_DATA',
       toolsUsed: [],
       prsDetected: []
     };
   } catch (error) {
-    console.error('[GymCoachAgent] Error:', error);
+    console.error('[GymTracker] Error:', error);
     return {
       updatedWorkout: currentWorkout,
-      coachComment: 'Something went wrong. Please try again.',
+      trackerResponse: 'Something went wrong. Please try again.',
       toolsUsed: [],
       prsDetected: [],
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -1055,17 +732,17 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
 }
 
 /**
- * Call OpenAI API
+ * Call OpenAI API — uses gpt-4o-mini for cost efficiency
  */
 async function callOpenAI(
   messages: ChatMessage[],
   includeTools: boolean
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages,
     temperature: 0.1, // Very low for strict instruction following
-    max_tokens: includeTools ? 1024 : 200 // 1024 for tool reasoning, 200 for short coaching comments
+    max_tokens: includeTools ? 1024 : 100 // 1024 for tool reasoning, 100 for short tracker responses
   };
 
   if (includeTools) {
@@ -1085,7 +762,7 @@ async function callOpenAI(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    console.error('[GymCoachAgent] OpenAI error:', error);
+    console.error('[GymTracker] OpenAI error:', error);
     throw new Error('OpenAI API error');
   }
 
@@ -1094,6 +771,7 @@ async function callOpenAI(
 
 /**
  * Process a tool call and return updated workout
+ * (Verbatim from gym-coach-agent.ts)
  */
 async function processToolCall(
   workout: WorkoutLog,
@@ -1227,7 +905,7 @@ async function processToolCall(
         try {
           historicalBest = await queryExercisePR(exerciseNameForPR, registryIdForPR);
         } catch (e) {
-          console.warn('[GymCoachAgent] Failed to query exercise PR:', e);
+          console.warn('[GymTracker] Failed to query exercise PR:', e);
         }
       }
 
@@ -1303,7 +981,7 @@ async function processToolCall(
     }
 
     default:
-      console.warn(`[GymCoachAgent] Unknown tool: ${toolName}`);
+      console.warn(`[GymTracker] Unknown tool: ${toolName}`);
       return { workout };
   }
 }

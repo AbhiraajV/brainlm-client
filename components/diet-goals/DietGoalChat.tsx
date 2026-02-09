@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Loader2, ArrowUp, SkipForward, Check, Sparkles, AlertTriangle } from 'lucide-react';
+import { Loader2, SkipForward, Check, Sparkles, AlertTriangle } from 'lucide-react';
 import type {
   ActivityLevel, DietGoalProfile, DailyTargets,
 } from '@/lib/sessions/types';
@@ -13,6 +13,8 @@ import {
   type NegotiationMessage,
   type GenerateDietGoalsResult,
 } from '@/server/actions/diet-goal-chat.actions';
+import { ChatInputBar } from '@/components/ui/ChatInputBar';
+import { FixedInputContainer } from '@/components/ui/FixedInputContainer';
 
 // ============================================================================
 // TYPES & CONSTANTS
@@ -447,7 +449,7 @@ export function DietGoalChat({
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-3 pb-32 space-y-2">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'assistant' ? (
@@ -519,8 +521,8 @@ export function DietGoalChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Bottom input area */}
-      <div className="border-t border-[var(--color-line)] px-4 py-3 space-y-2">
+      {/* Fixed bottom input area */}
+      <FixedInputContainer>
         {/* Questionnaire steps */}
         {currentStep < TOTAL_STEPS && (
           <StepInput
@@ -542,29 +544,18 @@ export function DietGoalChat({
         {/* Negotiation + Save (after targets are generated) */}
         {showTargets && (
           <div className="space-y-2">
-            <div className="flex gap-2">
-              <input
-                value={negotiationInput}
-                onChange={(e) => setNegotiationInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && negotiationInput.trim()) handleNegotiate();
-                }}
-                placeholder="Adjust via text: more protein? lower calories?..."
-                disabled={isNegotiating}
-                className="flex-1 px-3 py-2 text-sm bg-transparent border border-[var(--color-line)] focus:outline-none focus:border-[var(--color-lime)]/50 text-[var(--color-text)] placeholder:text-[var(--color-muted)]/50 disabled:opacity-50"
-              />
-              <button
-                onClick={handleNegotiate}
-                disabled={!negotiationInput.trim() || isNegotiating}
-                className="px-3 py-2 text-sm border border-[var(--color-lime)]/50 text-[var(--color-lime)] hover:bg-[var(--color-lime)]/10 disabled:opacity-30 transition-colors"
-              >
-                <ArrowUp className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <ChatInputBar
+              value={negotiationInput}
+              onChange={setNegotiationInput}
+              onSubmit={handleNegotiate}
+              placeholder="Adjust: more protein? lower calories?..."
+              disabled={isNegotiating}
+              isLoading={isNegotiating}
+            />
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="w-full py-2.5 text-sm font-medium bg-[var(--color-lime)] text-[var(--color-bg)] flex items-center justify-center gap-2 disabled:opacity-50 transition-opacity"
+              className="w-full py-2.5 text-sm font-medium bg-[var(--color-lime)] text-[var(--color-bg)] rounded-full flex items-center justify-center gap-2 disabled:opacity-50 transition-opacity"
             >
               {isSaving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -575,7 +566,7 @@ export function DietGoalChat({
             </button>
           </div>
         )}
-      </div>
+      </FixedInputContainer>
     </div>
   );
 }

@@ -5,6 +5,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/test(.*)',  // Test routes for development
   '/api/google-fit/callback',
+  '/pricing(.*)',
+  '/onboarding(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {

@@ -13,6 +13,7 @@ import {
   findBestE1RM,
   calculateAverageRPE
 } from '@/lib/gym/formulas';
+import { convertWeight } from '@/lib/gym/units';
 import type { ExercisePRData } from './add-set.handler';
 
 export interface UpdateSetResult {
@@ -91,11 +92,19 @@ export function handleUpdateSet(
 
   const existingSet = exercise.sets[setIndex];
 
+  // Normalize incoming weight to canonical unit (lbs) if needed
+  let incomingWeight = args.weight ?? existingSet.weight;
+  let incomingUnit = (args.weightUnit ?? existingSet.weightUnit) as WeightUnit;
+  if (args.weight != null && incomingUnit === 'kg') {
+    incomingWeight = convertWeight(incomingWeight, 'kg', 'lbs');
+    incomingUnit = 'lbs';
+  }
+
   // Apply updates
   const updatedSet = {
     ...existingSet,
-    weight: args.weight ?? existingSet.weight,
-    weightUnit: (args.weightUnit ?? existingSet.weightUnit) as WeightUnit,
+    weight: incomingWeight,
+    weightUnit: incomingUnit,
     actualReps: args.actualReps ?? existingSet.actualReps,
     setType: args.setType ?? existingSet.setType,
     rpe: args.rpe ?? existingSet.rpe,

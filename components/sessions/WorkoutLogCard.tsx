@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { WorkoutLog, ExerciseEntry, WorkoutSet, MuscleGroup, EquipmentType, SetType, WeightUnit, ExerciseTargets } from '@/lib/sessions/types';
 import { Dumbbell, Trophy, Target, Flame, Plus, X, Check, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
 import { calculateE1RM } from '@/lib/gym/formulas';
 import { TabBar } from '@/components/ui/TabBar';
-import { getMuscleGroupColor, formatMuscleGroup as fmtMuscle, BROAD_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
+import { getMuscleGroupColor, formatMuscleGroup as fmtMuscle, getBroadGroup, BROAD_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
+import { useExerciseLibrary } from '@/hooks/useExerciseLibrary';
+import { ExerciseDetailRow } from '@/components/templates/ExerciseDetailRow';
+import { convertWeight } from '@/lib/gym/units';
+import { useDisplayUnit, useSetDisplayUnit } from '@/store/gym-settings.store';
 
 interface WorkoutLogCardProps {
   workoutLog: WorkoutLog | undefined;
@@ -84,26 +88,32 @@ function InlineSetRow({
   set,
   editable,
   preferredUnit,
+  displayUnit,
   onUpdate,
   onDelete,
 }: {
   set: WorkoutSet;
   editable?: boolean;
   preferredUnit: WeightUnit;
+  displayUnit: WeightUnit;
   onUpdate?: (updatedSet: WorkoutSet) => void;
   onDelete?: () => void;
 }) {
   const isPR = set.computed?.isPR || set.prFlags?.e1rmPR || set.prFlags?.weightPR;
   const isSpecial = set.setType !== 'working';
 
-  // Local state for inline editing
-  const [weight, setWeight] = useState(set.weight.toString());
+  // Display weight in the user's chosen display unit
+  const displayWeight = convertWeight(set.weight, set.weightUnit || preferredUnit, displayUnit);
+
+  // Local state for inline editing (in display unit)
+  const [weight, setWeight] = useState(displayWeight.toString());
   const [reps, setReps] = useState(set.actualReps.toString());
   const [rpe, setRpe] = useState(set.rpe?.toString() || '');
 
-  // Commit changes on blur
+  // Commit changes on blur — convert back to canonical (lbs) before storing
   const handleBlur = useCallback(() => {
-    const newWeight = parseFloat(weight) || 0;
+    const displayVal = parseFloat(weight) || 0;
+    const newWeight = convertWeight(displayVal, displayUnit, 'lbs');
     const newReps = parseInt(reps) || 0;
     const newRpe = rpe ? parseFloat(rpe) : undefined;
 
@@ -112,6 +122,7 @@ function InlineSetRow({
       onUpdate?.({
         ...set,
         weight: newWeight,
+        weightUnit: 'lbs',
         actualReps: newReps,
         rpe: newRpe,
         computed: {
@@ -121,7 +132,7 @@ function InlineSetRow({
         }
       });
     }
-  }, [weight, reps, rpe, set, onUpdate]);
+  }, [weight, reps, rpe, set, onUpdate, displayUnit]);
 
   // PR indicator styles
   const rowBg = isPR ? 'bg-amber-50' : '';
@@ -129,27 +140,33 @@ function InlineSetRow({
   return (
     <div className={`flex items-center gap-2 py-1.5 px-1 rounded ${rowBg} group`}>
       {/* Set number */}
-      <span className="w-5 text-xs text-[var(--color-muted)] font-medium">
+      <span className="w-5 text-sm text-[var(--color-muted)] font-medium">
         {set.setNumber}
       </span>
 
-      {/* Weight input */}
+      {/* Weight input + unit label */}
       {editable ? (
-        <input
-          type="number"
-          value={weight}
-          onChange={e => setWeight(e.target.value)}
-          onBlur={handleBlur}
-          className="w-16 px-1.5 py-0.5 text-xs text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
-          placeholder={preferredUnit}
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            value={weight}
+            onChange={e => setWeight(e.target.value)}
+            onBlur={handleBlur}
+            className="w-20 px-2 py-1 text-sm text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
+            placeholder={displayUnit}
+          />
+          <span className="text-xs text-[var(--color-muted)]">{displayUnit}</span>
+        </div>
       ) : (
-        <span className="w-16 text-xs text-center font-medium">
-          {set.weight === 0 ? 'BW' : set.weight}
-        </span>
+        <div className="flex items-baseline gap-0.5">
+          <span className="text-sm font-medium">
+            {set.weight === 0 ? 'BW' : displayWeight}
+          </span>
+          {set.weight !== 0 && <span className="text-xs text-[var(--color-muted)]">{displayUnit}</span>}
+        </div>
       )}
 
-      <span className="text-[var(--color-muted)] text-xs">×</span>
+      <span className="text-[var(--color-muted)] text-sm">×</span>
 
       {/* Reps input */}
       {editable ? (
@@ -158,11 +175,11 @@ function InlineSetRow({
           value={reps}
           onChange={e => setReps(e.target.value)}
           onBlur={handleBlur}
-          className="w-12 px-1.5 py-0.5 text-xs text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
+          className="w-16 px-2 py-1 text-sm text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
           placeholder="reps"
         />
       ) : (
-        <span className="w-12 text-xs text-center font-medium">{set.actualReps}</span>
+        <span className="w-16 text-sm text-center font-medium">{set.actualReps}</span>
       )}
 
       {/* RPE input (optional) */}
@@ -175,13 +192,13 @@ function InlineSetRow({
           min="1"
           max="10"
           step="0.5"
-          className="w-10 px-1 py-0.5 text-xs text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
+          className="w-12 px-1 py-1 text-sm text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
           placeholder="RPE"
         />
       ) : set.rpe ? (
-        <span className="w-10 text-xs text-center text-[var(--color-muted)]">@{set.rpe}</span>
+        <span className="w-12 text-sm text-center text-[var(--color-muted)]">@{set.rpe}</span>
       ) : (
-        <span className="w-10" />
+        <span className="w-12" />
       )}
 
       {/* Set type badge */}
@@ -225,6 +242,8 @@ function ActualSetRow({
   editable,
   targetWeight,
   targetReps,
+  displayUnit,
+  preferredUnit,
   onUpdate,
   onDelete,
 }: {
@@ -232,22 +251,32 @@ function ActualSetRow({
   editable?: boolean;
   targetWeight: number;
   targetReps: number;
+  displayUnit: WeightUnit;
+  preferredUnit: WeightUnit;
   onUpdate?: (updatedSet: WorkoutSet) => void;
   onDelete?: () => void;
 }) {
   const isPR = set.computed?.isPR || set.prFlags?.e1rmPR || set.prFlags?.weightPR;
-  const [isEditing, setIsEditing] = useState(false);
-  const [weight, setWeight] = useState(set.weight.toString());
+  const isSpecial = set.setType && set.setType !== 'working';
+
+  // Display weight in the user's chosen display unit
+  const displayWeight = convertWeight(set.weight, set.weightUnit || preferredUnit, displayUnit);
+
+  // Local state for inline editing (in display unit)
+  const [weight, setWeight] = useState(displayWeight.toString());
   const [reps, setReps] = useState(set.actualReps.toString());
 
-  const handleSave = useCallback(() => {
-    const newWeight = parseFloat(weight) || 0;
+  // Commit changes on blur — convert back to canonical (lbs)
+  const handleBlur = useCallback(() => {
+    const displayVal = parseFloat(weight) || 0;
+    const newWeight = convertWeight(displayVal, displayUnit, 'lbs');
     const newReps = parseInt(reps) || 0;
 
     if (newWeight !== set.weight || newReps !== set.actualReps) {
       onUpdate?.({
         ...set,
         weight: newWeight,
+        weightUnit: 'lbs',
         actualReps: newReps,
         computed: {
           volume: newWeight * newReps,
@@ -256,71 +285,65 @@ function ActualSetRow({
         }
       });
     }
-    setIsEditing(false);
-  }, [weight, reps, set, onUpdate]);
+  }, [weight, reps, set, onUpdate, displayUnit]);
 
-  if (editable && isEditing) {
-    return (
-      <div className="flex items-center gap-1 group">
-        <span className="text-xs text-[var(--color-muted)] w-4">{set.setNumber}.</span>
-        <input
-          type="number"
-          value={weight}
-          onChange={e => setWeight(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={e => e.key === 'Enter' && handleSave()}
-          autoFocus
-          className="w-12 px-1 py-0.5 text-xs text-center border border-[var(--color-accent)] rounded bg-transparent focus:outline-none"
-        />
-        <span className="text-[var(--color-muted)]">×</span>
+  return (
+    <div className="flex items-center gap-2 py-1.5 group">
+      <span className="text-sm text-[var(--color-muted)] w-5">{set.setNumber}.</span>
+
+      {/* Weight + unit label */}
+      {editable ? (
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            value={weight}
+            onChange={e => setWeight(e.target.value)}
+            onBlur={handleBlur}
+            className="w-20 px-2 py-1 text-sm text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
+            placeholder={displayUnit}
+          />
+          <span className="text-xs text-[var(--color-muted)]">{displayUnit}</span>
+        </div>
+      ) : (
+        <div className="flex items-baseline gap-0.5">
+          <span className={`text-base font-semibold ${getProgressColor(displayWeight, targetWeight)}`}>
+            {displayWeight}
+          </span>
+          <span className="text-xs text-[var(--color-muted)]">{displayUnit}</span>
+        </div>
+      )}
+      <span className="text-sm text-[var(--color-muted)]">×</span>
+
+      {/* Reps */}
+      {editable ? (
         <input
           type="number"
           value={reps}
           onChange={e => setReps(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={e => e.key === 'Enter' && handleSave()}
-          className="w-10 px-1 py-0.5 text-xs text-center border border-[var(--color-accent)] rounded bg-transparent focus:outline-none"
+          onBlur={handleBlur}
+          className="w-16 px-2 py-1 text-sm text-center border border-[var(--color-line)] rounded bg-transparent focus:border-[var(--color-accent)] focus:outline-none"
+          placeholder="reps"
         />
-        <button onClick={handleSave} className="p-0.5 text-green-600 hover:text-green-700">
-          <Check className="w-3 h-3" />
-        </button>
-      </div>
-    );
-  }
-
-  const isSpecial = set.setType && set.setType !== 'working';
-
-  return (
-    <div
-      className="group cursor-pointer py-1"
-      onClick={() => editable && setIsEditing(true)}
-    >
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-[var(--color-muted)] w-4">{set.setNumber}.</span>
-        <span className={`text-sm font-semibold ${getProgressColor(set.weight, targetWeight)}`}>
-          {set.weight}
-        </span>
-        <span className="text-[10px] text-[var(--color-muted)]">{set.weightUnit}</span>
-        <span className="text-xs text-[var(--color-muted)]">×</span>
-        <span className={`text-sm font-semibold ${getProgressColor(set.actualReps, targetReps)}`}>
+      ) : (
+        <span className={`text-base font-semibold ${getProgressColor(set.actualReps, targetReps)}`}>
           {set.actualReps}
         </span>
-        {isPR && <Trophy className="w-3 h-3 text-amber-500" />}
-        {/* Set type badge - inline */}
-        {isSpecial && (
-          <span className="text-[9px] px-1 py-0.5 border border-[var(--color-accent)] text-[var(--color-accent)] font-medium uppercase">
-            {set.setType?.replace(/_/g, ' ')}
-          </span>
-        )}
-        {editable && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-            className="ml-auto opacity-0 group-hover:opacity-100 text-[var(--color-muted)] hover:text-red-500"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
-      </div>
+      )}
+
+      {isPR && <Trophy className="w-3 h-3 text-amber-500" />}
+      {isSpecial && (
+        <span className="text-[10px] px-1 py-0.5 border border-[var(--color-accent)] text-[var(--color-accent)] font-medium uppercase">
+          {set.setType?.replace(/_/g, ' ')}
+        </span>
+      )}
+      {editable && (
+        <button
+          onClick={() => onDelete?.()}
+          className="ml-auto opacity-0 group-hover:opacity-100 text-[var(--color-muted)] hover:text-red-500"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -405,18 +428,41 @@ function ExerciseSection({
   exercise,
   editable,
   preferredUnit,
+  displayUnit,
   onUpdateExercise,
   onDeleteExercise
 }: {
   exercise: ExerciseEntry;
   editable?: boolean;
   preferredUnit: WeightUnit;
+  displayUnit: WeightUnit;
   onUpdateExercise?: (exercise: ExerciseEntry) => void;
   onDeleteExercise?: () => void;
 }) {
   const [addingSet, setAddingSet] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false); // Expanded by default
-  const [activeTab, setActiveTab] = useState<'actual' | 'target' | 'previous'>('actual');
+  const [activeTab, setActiveTab] = useState<'actual' | 'target' | 'previous' | 'similar'>('actual');
+
+  // Exercise library for SIMILAR tab
+  const { exercises: libraryExercises } = useExerciseLibrary();
+  const similarExercises = useMemo(() => {
+    if (!exercise.muscleGroup) return [];
+    const broadGroup = getBroadGroup(exercise.muscleGroup);
+    return libraryExercises
+      .filter(e =>
+        e.exerciseName !== exercise.exerciseName &&
+        !e.isPlanOnly &&
+        getBroadGroup(e.muscleGroup) === broadGroup
+      )
+      .sort((a, b) => {
+        // Exact muscle match first, then alphabetical
+        const aExact = a.muscleGroup === exercise.muscleGroup ? 0 : 1;
+        const bExact = b.muscleGroup === exercise.muscleGroup ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        return a.exerciseName.localeCompare(b.exerciseName);
+      })
+      .slice(0, 10);
+  }, [exercise.exerciseName, exercise.muscleGroup, libraryExercises]);
 
   const totalReps = exercise.sets.reduce((sum, s) => sum + s.actualReps, 0);
   const totalVolume = exercise.sets.reduce((sum, s) => sum + (s.weight * s.actualReps), 0);
@@ -456,17 +502,17 @@ function ExerciseSection({
         className="w-full text-left"
       >
         <div className="flex items-center gap-2">
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0" />
-          )}
           <span className="font-semibold text-sm text-[var(--color-text)]">{exercise.exerciseName}</span>
           {hasPR && <Trophy className="w-3.5 h-3.5 text-amber-500" />}
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0 ml-auto" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0 ml-auto" />
+          )}
         </div>
 
         {/* Metric tags row */}
-        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 ml-6">
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           <span className={`text-[10px] px-1.5 py-0.5 font-medium ${getMuscleGroupColor(exercise.muscleGroup)}`}>
             {formatMuscleGroup(exercise.muscleGroup)}
           </span>
@@ -478,7 +524,7 @@ function ExerciseSection({
           </span>
           {totalVolume > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] text-[var(--color-text)] font-medium">
-              {totalVolume.toLocaleString()} {unit}
+              {Math.round(convertWeight(totalVolume, unit, displayUnit)).toLocaleString()} {displayUnit}
             </span>
           )}
         </div>
@@ -489,13 +535,14 @@ function ExerciseSection({
         <>
       {/* Tabbed interface */}
       {hasTargets ? (
-        <div className="mt-3 ml-6">
+        <div className="mt-3">
           {/* Tab buttons */}
           <TabBar
             tabs={[
               { id: 'actual', label: 'ACTUAL' },
               { id: 'target', label: 'TARGET' },
               { id: 'previous', label: 'PREV' },
+              { id: 'similar', label: 'SIMILAR' },
             ]}
             activeTab={activeTab}
             onTabChange={(id) => setActiveTab(id as typeof activeTab)}
@@ -503,17 +550,19 @@ function ExerciseSection({
           />
 
           {/* Tab content */}
-          <div className="py-3">
+          <div className="py-4">
             {/* ACTUAL Tab */}
             {activeTab === 'actual' && (
               <div className="space-y-1">
                 {exercise.sets.map((set) => (
                   <ActualSetRow
-                    key={set.setNumber}
+                    key={`${set.setNumber}-${displayUnit}`}
                     set={set}
                     editable={editable}
-                    targetWeight={exercise.targets?.weight || 0}
+                    targetWeight={exercise.targets ? convertWeight(exercise.targets.weight, exercise.targets.weightUnit, displayUnit) : 0}
                     targetReps={exercise.targets?.reps || 0}
+                    displayUnit={displayUnit}
+                    preferredUnit={preferredUnit}
                     onUpdate={(updatedSet) => handleUpdateSet(set.setNumber, updatedSet)}
                     onDelete={() => handleDeleteSet(set.setNumber)}
                   />
@@ -551,24 +600,24 @@ function ExerciseSection({
             {/* TARGET Tab */}
             {activeTab === 'target' && (
               <div className="space-y-2">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-base font-semibold">{exercise.targets?.weight}</span>
-                  <span className="text-xs text-[var(--color-muted)]">{exercise.targets?.weightUnit}</span>
-                  <span className="text-xs text-[var(--color-muted)]">×</span>
-                  <span className="text-base font-semibold">{exercise.targets?.reps}</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-lg font-semibold">{exercise.targets ? convertWeight(exercise.targets.weight, exercise.targets.weightUnit, displayUnit) : 0}</span>
+                  <span className="text-sm text-[var(--color-muted)]">{displayUnit}</span>
+                  <span className="text-sm text-[var(--color-muted)]">×</span>
+                  <span className="text-lg font-semibold">{exercise.targets?.reps}</span>
                 </div>
                 <div className="flex gap-1">
-                  <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
+                  <span className="text-xs px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
                     {exercise.targets?.sets} sets
                   </span>
                   {exercise.targets?.confidence && (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
+                    <span className="text-xs px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
                       {exercise.targets.confidence}
                     </span>
                   )}
                 </div>
                 {exercise.targets?.rationale && (
-                  <p className="text-[11px] text-[var(--color-muted)] border-l border-[var(--color-line)] pl-2">
+                  <p className="text-xs text-[var(--color-muted)] border-l border-[var(--color-line)] pl-2">
                     {exercise.targets.rationale}
                   </p>
                 )}
@@ -580,18 +629,43 @@ function ExerciseSection({
               <div className="space-y-2">
                 {exercise.computed?.lastSession ? (
                   <>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-base font-semibold">{exercise.computed.lastSession.topSet.weight}</span>
-                      <span className="text-xs text-[var(--color-muted)]">{unit}</span>
-                      <span className="text-xs text-[var(--color-muted)]">×</span>
-                      <span className="text-base font-semibold">{exercise.computed.lastSession.topSet.reps}</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-semibold">{convertWeight(exercise.computed.lastSession.topSet.weight, unit, displayUnit)}</span>
+                      <span className="text-sm text-[var(--color-muted)]">{displayUnit}</span>
+                      <span className="text-sm text-[var(--color-muted)]">×</span>
+                      <span className="text-lg font-semibold">{exercise.computed.lastSession.topSet.reps}</span>
                     </div>
-                    <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
+                    <span className="text-xs px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
                       {formatDate(exercise.computed.lastSession.date)}
                     </span>
                   </>
                 ) : (
-                  <p className="text-xs text-[var(--color-muted)]">First time</p>
+                  <p className="text-sm text-[var(--color-muted)]">First time</p>
+                )}
+              </div>
+            )}
+
+            {/* SIMILAR Tab */}
+            {activeTab === 'similar' && (
+              <div className="space-y-1">
+                {similarExercises.length === 0 ? (
+                  <p className="text-xs text-[var(--color-muted)]">No similar exercises in your library yet</p>
+                ) : (
+                  similarExercises.map((entry) => (
+                    <div key={entry.exerciseName}>
+                      {/* Compact header */}
+                      <div className="flex items-center gap-2 py-1.5">
+                        <span className="text-xs font-medium text-[var(--color-text)] truncate">{entry.exerciseName}</span>
+                        <span className={`text-[9px] px-1 py-0.5 font-medium shrink-0 ${getMuscleGroupColor(entry.muscleGroup)}`}>
+                          {formatMuscleGroup(entry.muscleGroup)}
+                        </span>
+                        <span className="text-[10px] text-[var(--color-muted)] shrink-0 ml-auto">
+                          {entry.sessionCount} sessions
+                        </span>
+                      </div>
+                      <ExerciseDetailRow exercise={entry} />
+                    </div>
+                  ))
                 )}
               </div>
             )}
@@ -599,13 +673,14 @@ function ExerciseSection({
         </div>
       ) : (
         /* Simple layout when no targets */
-        <div className="mt-3 ml-6 py-2 border-t border-[var(--color-line)]">
+        <div className="mt-3 py-2 border-t border-[var(--color-line)]">
           {/* Last session context */}
           {exercise.computed?.lastSession && (
             <div className="mb-2 pb-2 border-b border-[var(--color-line)]">
               <span className="text-[10px] text-[var(--color-muted)] uppercase">Previous</span>
               <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-sm font-semibold">{exercise.computed.lastSession.topSet.weight}{unit}</span>
+                <span className="text-sm font-semibold">{convertWeight(exercise.computed.lastSession.topSet.weight, unit, displayUnit)}</span>
+                <span className="text-xs text-[var(--color-muted)]">{displayUnit}</span>
                 <span className="text-xs text-[var(--color-muted)]">×</span>
                 <span className="text-sm font-semibold">{exercise.computed.lastSession.topSet.reps}</span>
                 <span className="text-[10px] text-[var(--color-muted)]">{formatDate(exercise.computed.lastSession.date)}</span>
@@ -617,10 +692,11 @@ function ExerciseSection({
           <div className="space-y-1">
             {exercise.sets.map((set) => (
               <InlineSetRow
-                key={set.setNumber}
+                key={`${set.setNumber}-${displayUnit}`}
                 set={set}
                 editable={editable}
                 preferredUnit={preferredUnit}
+                displayUnit={displayUnit}
                 onUpdate={(updatedSet) => handleUpdateSet(set.setNumber, updatedSet)}
                 onDelete={() => handleDeleteSet(set.setNumber)}
               />
@@ -734,25 +810,60 @@ function AddExerciseForm({
   );
 }
 
+// Unit toggle component
+function UnitToggle({ displayUnit, onToggle }: { displayUnit: WeightUnit; onToggle: (unit: WeightUnit) => void }) {
+  return (
+    <div className="flex items-center">
+      <button
+        onClick={() => onToggle('lbs')}
+        className={`text-[10px] px-2 py-0.5 font-medium transition-colors ${
+          displayUnit === 'lbs'
+            ? 'bg-[var(--color-text)] text-[var(--color-bg)]'
+            : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+        }`}
+      >
+        LB
+      </button>
+      <button
+        onClick={() => onToggle('kg')}
+        className={`text-[10px] px-2 py-0.5 font-medium transition-colors ${
+          displayUnit === 'kg'
+            ? 'bg-[var(--color-text)] text-[var(--color-bg)]'
+            : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+        }`}
+      >
+        KG
+      </button>
+    </div>
+  );
+}
+
 // Summary bar component
-function WorkoutSummaryBar({ summary, preferredUnit, computed }: {
+function WorkoutSummaryBar({ summary, preferredUnit, computed, displayUnit, onToggleUnit }: {
   summary: WorkoutLog['summary'];
   preferredUnit: WorkoutLog['preferredUnit'];
   computed?: WorkoutLog['computed'];
+  displayUnit: WeightUnit;
+  onToggleUnit: (unit: WeightUnit) => void;
 }) {
+  const displayVolume = convertWeight(summary.totalVolume, preferredUnit, displayUnit);
+
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--color-muted)] py-1 px-5 sm:px-7 border-b border-[var(--color-line)]">
-      <span>{summary.totalExercises} exercises</span>
-      <span>·</span>
-      <span>{summary.totalSets} sets</span>
-      <span>·</span>
-      <span>{summary.totalVolume.toLocaleString()} {preferredUnit}</span>
-      {summary.prCount > 0 && (
-        <>
-          <span>·</span>
-          <span className="text-amber-600 font-medium">{summary.prCount} PR</span>
-        </>
-      )}
+    <div className="flex items-center gap-2 text-[10px] text-[var(--color-muted)] py-1 px-5 sm:px-7 border-b border-[var(--color-line)]">
+      <div className="flex flex-wrap items-center gap-2 flex-1">
+        <span>{summary.totalExercises} exercises</span>
+        <span>·</span>
+        <span>{summary.totalSets} sets</span>
+        <span>·</span>
+        <span>{Math.round(displayVolume).toLocaleString()} {displayUnit}</span>
+        {summary.prCount > 0 && (
+          <>
+            <span>·</span>
+            <span className="text-amber-600 font-medium">{summary.prCount} PR</span>
+          </>
+        )}
+      </div>
+      <UnitToggle displayUnit={displayUnit} onToggle={onToggleUnit} />
     </div>
   );
 }
@@ -763,6 +874,8 @@ function WorkoutSummaryBar({ summary, preferredUnit, computed }: {
  */
 export function WorkoutLogCard({ workoutLog, isLoading, editable, onUpdate }: WorkoutLogCardProps) {
   const [addingExercise, setAddingExercise] = useState(false);
+  const displayUnit = useDisplayUnit();
+  const setDisplayUnit = useSetDisplayUnit();
 
   const handleUpdateExercise = useCallback((updatedExercise: ExerciseEntry) => {
     if (!workoutLog || !onUpdate) return;
@@ -912,7 +1025,7 @@ export function WorkoutLogCard({ workoutLog, isLoading, editable, onUpdate }: Wo
           )}
 
           {/* Summary bar */}
-          <WorkoutSummaryBar summary={workoutLog.summary} preferredUnit={workoutLog.preferredUnit} computed={workoutLog.computed} />
+          <WorkoutSummaryBar summary={workoutLog.summary} preferredUnit={workoutLog.preferredUnit} computed={workoutLog.computed} displayUnit={displayUnit} onToggleUnit={setDisplayUnit} />
 
           {/* Exercises */}
           <div className="mt-2">
@@ -922,6 +1035,7 @@ export function WorkoutLogCard({ workoutLog, isLoading, editable, onUpdate }: Wo
                 exercise={exercise}
                 editable={editable}
                 preferredUnit={workoutLog.preferredUnit}
+                displayUnit={displayUnit}
                 onUpdateExercise={handleUpdateExercise}
                 onDeleteExercise={() => handleDeleteExercise(exercise.id)}
               />

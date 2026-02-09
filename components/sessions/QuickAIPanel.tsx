@@ -188,11 +188,11 @@ export function QuickAIPanel({ onWorkoutGenerated, onBack }: QuickAIPanelProps) 
           totalSets: 0,
           totalReps: 0,
           totalVolume: 0,
-          totalVolumeUnit: 'kg',
+          totalVolumeUnit: 'lbs',
           muscleGroupsWorked: muscleGroups,
           prCount: 0,
         },
-        preferredUnit: 'kg',
+        preferredUnit: 'lbs',
         createdAt: now,
         updatedAt: now,
       };

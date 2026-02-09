@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import type { DietLog, MealEntry, FoodItem, MealType, Macros, ServingUnit, FoodSource } from '@/lib/sessions/types';
-import { ChevronDown, ChevronRight, Flame, Beef, Wheat, Droplets, Trash2, Plus, X, Check, Edit2 } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import type { DietLog, MealEntry, FoodItem, MealType, Macros, FoodSource } from '@/lib/sessions/types';
+import { ChevronDown, ChevronRight, Flame, Beef, Wheat, Droplets, Trash2, Plus, X, Check } from 'lucide-react';
 import { recalculateDietSummary, generateId, getMealOrder } from '@/lib/diet/macros';
-import { TabBar } from '@/components/ui/TabBar';
 
 interface DietLogCardProps {
   dietLog: DietLog | undefined;
@@ -29,10 +28,6 @@ const mealTypeConfig: Record<MealType, { icon: string; label: string }> = {
 const MEAL_TYPE_OPTIONS: MealType[] = [
   'breakfast', 'morning_snack', 'lunch', 'afternoon_snack',
   'dinner', 'evening_snack', 'pre_workout', 'post_workout', 'other'
-];
-
-const SERVING_UNIT_OPTIONS: ServingUnit[] = [
-  'g', 'ml', 'oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving', 'scoop'
 ];
 
 // Progress color based on percentage - using CSS variables
@@ -110,7 +105,41 @@ function ProgressIndicator({ percentage, label }: { percentage: number; label: s
   );
 }
 
-// Editable food item row component
+// Format loggedAt timestamp to short time string
+function formatLoggedAt(loggedAt: string): string {
+  try {
+    const d = new Date(loggedAt);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+// Column header row with icons — rendered per food item below title/timestamp
+function MacroColumnHeaders() {
+  return (
+    <div className="grid grid-cols-4 gap-1.5 mt-1.5 mb-0.5">
+      <div className="flex items-center justify-center gap-0.5 text-[10px] text-[var(--color-muted)]">
+        <Flame className="w-3 h-3 text-orange-500" />
+        <span>Cal</span>
+      </div>
+      <div className="flex items-center justify-center gap-0.5 text-[10px] text-[var(--color-muted)]">
+        <Beef className="w-3 h-3 text-red-500" />
+        <span>Protein</span>
+      </div>
+      <div className="flex items-center justify-center gap-0.5 text-[10px] text-[var(--color-muted)]">
+        <Wheat className="w-3 h-3 text-amber-600" />
+        <span>Carbs</span>
+      </div>
+      <div className="flex items-center justify-center gap-0.5 text-[10px] text-[var(--color-muted)]">
+        <Droplets className="w-3 h-3 text-yellow-500" />
+        <span>Fat</span>
+      </div>
+    </div>
+  );
+}
+
+// Editable food item row — full-width name + timestamp, then macro table row
 function EditableFoodRow({
   food,
   editable,
@@ -122,174 +151,148 @@ function EditableFoodRow({
   onUpdate?: (food: FoodItem) => void;
   onDelete?: () => void;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValues, setEditValues] = useState({
+  const [values, setValues] = useState({
     name: food.name,
-    servingSize: food.servingSize,
-    servingUnit: food.servingUnit,
     calories: food.macros.calories,
     protein: food.macros.protein,
     carbs: food.macros.carbs,
     fat: food.macros.fat,
   });
 
-  const handleSave = () => {
-    if (onUpdate) {
-      onUpdate({
-        ...food,
-        name: editValues.name,
-        servingSize: editValues.servingSize,
-        servingUnit: editValues.servingUnit,
-        macros: {
-          calories: editValues.calories,
-          protein: editValues.protein,
-          carbs: editValues.carbs,
-          fat: editValues.fat,
-        },
-      });
-    }
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setEditValues({
+  // Sync if food changes from outside (e.g. agent update)
+  const prevFoodRef = useRef(food);
+  if (
+    prevFoodRef.current.name !== food.name ||
+    prevFoodRef.current.macros.calories !== food.macros.calories ||
+    prevFoodRef.current.macros.protein !== food.macros.protein ||
+    prevFoodRef.current.macros.carbs !== food.macros.carbs ||
+    prevFoodRef.current.macros.fat !== food.macros.fat
+  ) {
+    prevFoodRef.current = food;
+    setValues({
       name: food.name,
-      servingSize: food.servingSize,
-      servingUnit: food.servingUnit,
       calories: food.macros.calories,
       protein: food.macros.protein,
       carbs: food.macros.carbs,
       fat: food.macros.fat,
     });
-    setIsEditing(false);
-  };
+  }
 
-  if (isEditing) {
+  const commitField = useCallback((field: string, raw: string) => {
+    const num = parseFloat(raw) || 0;
+    const updated = { ...values, [field]: field === 'name' ? raw : num };
+    setValues(updated);
+    if (onUpdate) {
+      onUpdate({
+        ...food,
+        name: updated.name,
+        macros: {
+          calories: typeof updated.calories === 'number' ? updated.calories : food.macros.calories,
+          protein: typeof updated.protein === 'number' ? updated.protein : food.macros.protein,
+          carbs: typeof updated.carbs === 'number' ? updated.carbs : food.macros.carbs,
+          fat: typeof updated.fat === 'number' ? updated.fat : food.macros.fat,
+        },
+      });
+    }
+  }, [food, values, onUpdate]);
+
+  const timeStr = formatLoggedAt(food.loggedAt);
+  const servingInfo = food.servingSize > 0 ? `${food.servingSize}${food.servingUnit}` : '';
+
+  if (!editable) {
     return (
-      <div className="py-2 px-1 bg-[var(--color-background)] rounded border border-[var(--color-line)] mb-2">
-        <div className="space-y-2">
-          <input
-            type="text"
-            value={editValues.name}
-            onChange={e => setEditValues(prev => ({ ...prev, name: e.target.value }))}
-            className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            placeholder="Food name"
-          />
-          <div className="flex gap-2">
-            <input
-              type="number"
-              value={editValues.servingSize}
-              onChange={e => setEditValues(prev => ({ ...prev, servingSize: parseFloat(e.target.value) || 0 }))}
-              className="w-20 px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-              placeholder="Size"
-            />
-            <select
-              value={editValues.servingUnit}
-              onChange={e => setEditValues(prev => ({ ...prev, servingUnit: e.target.value as ServingUnit }))}
-              className="px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            >
-              {SERVING_UNIT_OPTIONS.map(unit => (
-                <option key={unit} value={unit}>{unit}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            <div>
-              <label className="text-xs text-[var(--color-muted)]">Cal</label>
-              <input
-                type="number"
-                value={editValues.calories}
-                onChange={e => setEditValues(prev => ({ ...prev, calories: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[var(--color-muted)]">P</label>
-              <input
-                type="number"
-                value={editValues.protein}
-                onChange={e => setEditValues(prev => ({ ...prev, protein: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[var(--color-muted)]">C</label>
-              <input
-                type="number"
-                value={editValues.carbs}
-                onChange={e => setEditValues(prev => ({ ...prev, carbs: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-[var(--color-muted)]">F</label>
-              <input
-                type="number"
-                value={editValues.fat}
-                onChange={e => setEditValues(prev => ({ ...prev, fat: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={handleCancel}
-              className="p-1 text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
-            >
-              <X className="w-4 h-4" />
+      <div className="py-2 px-1 border-b border-[var(--color-line)] last:border-b-0">
+        {/* Name row */}
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] text-[var(--color-text)]">{food.name}</span>
+          {editable && (
+            <button onClick={onDelete} className="p-1 text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors flex-shrink-0">
+              <X className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={handleSave}
-              className="p-1 text-[var(--color-success)] hover:text-[var(--color-text)] transition-colors"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-          </div>
+          )}
+        </div>
+        {/* Subtitle: timestamp + serving */}
+        <div className="flex items-center gap-2 text-[10px] text-[var(--color-muted)] mt-0.5">
+          {timeStr && <span>{timeStr}</span>}
+          {servingInfo && <span>{servingInfo}</span>}
+          {food.brand && <span>{food.brand}</span>}
+        </div>
+        {/* Macro icon headers + values */}
+        <MacroColumnHeaders />
+        <div className="grid grid-cols-4 gap-1.5">
+          <span className="text-center text-[12px] font-medium text-[var(--color-text)]">{Math.round(food.macros.calories)}</span>
+          <span className="text-center text-[12px] font-medium text-[var(--color-text)]">{Math.round(food.macros.protein)}g</span>
+          <span className="text-center text-[12px] font-medium text-[var(--color-text)]">{Math.round(food.macros.carbs)}g</span>
+          <span className="text-center text-[12px] font-medium text-[var(--color-text)]">{Math.round(food.macros.fat)}g</span>
         </div>
       </div>
     );
   }
 
+  // Editable layout
   return (
-    <div className="flex items-center justify-between py-1.5 text-sm group">
-      <div className="flex-1 min-w-0">
-        <span className="text-[var(--color-text)] truncate block">
-          {food.name}
-          {food.brand && (
-            <span className="text-[var(--color-muted)] text-xs ml-1">({food.brand})</span>
-          )}
-        </span>
-        <span className="text-xs text-[var(--color-muted)]">
-          {food.servingSize} {food.servingUnit}
-        </span>
+    <div className="py-2 px-1 border-b border-[var(--color-line)] last:border-b-0">
+      {/* Name row — full width input + delete */}
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={values.name}
+          onChange={e => setValues(prev => ({ ...prev, name: e.target.value }))}
+          onBlur={e => commitField('name', e.target.value)}
+          className="flex-1 min-w-0 px-1.5 py-1 text-[13px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+          placeholder="Food name"
+        />
+        <button
+          onClick={onDelete}
+          className="p-1 text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors flex-shrink-0"
+          title="Delete food"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
       </div>
-      <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] ml-2">
-        <span>{Math.round(food.macros.calories)} cal</span>
-        <span>{Math.round(food.macros.protein)}g P</span>
-        {editable && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={() => setIsEditing(true)}
-              className="p-1 hover:text-[var(--color-text)] transition-colors"
-              title="Edit food"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={onDelete}
-              className="p-1 hover:text-[var(--color-error)] transition-colors"
-              title="Delete food"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+      {/* Subtitle: timestamp + serving */}
+      <div className="flex items-center gap-2 text-[10px] text-[var(--color-muted)] mt-0.5 px-0.5">
+        {timeStr && <span>{timeStr}</span>}
+        {servingInfo && <span>{servingInfo}</span>}
+        {food.brand && <span>{food.brand}</span>}
+      </div>
+      {/* Macro icon headers + inputs */}
+      <MacroColumnHeaders />
+      <div className="grid grid-cols-4 gap-1.5">
+        <input
+          type="number"
+          value={values.calories}
+          onChange={e => setValues(prev => ({ ...prev, calories: parseFloat(e.target.value) || 0 }))}
+          onBlur={e => commitField('calories', e.target.value)}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+        />
+        <input
+          type="number"
+          value={values.protein}
+          onChange={e => setValues(prev => ({ ...prev, protein: parseFloat(e.target.value) || 0 }))}
+          onBlur={e => commitField('protein', e.target.value)}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+        />
+        <input
+          type="number"
+          value={values.carbs}
+          onChange={e => setValues(prev => ({ ...prev, carbs: parseFloat(e.target.value) || 0 }))}
+          onBlur={e => commitField('carbs', e.target.value)}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+        />
+        <input
+          type="number"
+          value={values.fat}
+          onChange={e => setValues(prev => ({ ...prev, fat: parseFloat(e.target.value) || 0 }))}
+          onBlur={e => commitField('fat', e.target.value)}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+        />
       </div>
     </div>
   );
 }
 
-// Add food form component
+// Add food form — matching EditableFoodRow layout
 function AddFoodForm({
   onAdd,
   onCancel
@@ -299,23 +302,19 @@ function AddFoodForm({
 }) {
   const [values, setValues] = useState({
     name: '',
-    servingSize: 1,
-    servingUnit: 'serving' as ServingUnit,
     calories: 0,
     protein: 0,
     carbs: 0,
     fat: 0,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = () => {
     if (!values.name.trim()) return;
-
     onAdd({
       name: values.name,
       source: 'other' as FoodSource,
-      servingSize: values.servingSize,
-      servingUnit: values.servingUnit,
+      servingSize: 1,
+      servingUnit: 'serving',
       macros: {
         calories: values.calories,
         protein: values.protein,
@@ -326,97 +325,76 @@ function AddFoodForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="py-2 px-1 bg-[var(--color-background)] rounded border border-[var(--color-line)] mb-2">
-      <div className="space-y-2">
+    <div className="py-2 px-1 border border-dashed border-[var(--color-line)]">
+      {/* Name row + action buttons */}
+      <div className="flex items-center gap-1.5">
         <input
           type="text"
           value={values.name}
           onChange={e => setValues(prev => ({ ...prev, name: e.target.value }))}
-          className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
+          onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+          className="flex-1 min-w-0 px-1.5 py-1 text-[13px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
           placeholder="Food name"
           autoFocus
         />
-        <div className="flex gap-2">
-          <input
-            type="number"
-            value={values.servingSize}
-            onChange={e => setValues(prev => ({ ...prev, servingSize: parseFloat(e.target.value) || 0 }))}
-            className="w-20 px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            placeholder="Size"
-          />
-          <select
-            value={values.servingUnit}
-            onChange={e => setValues(prev => ({ ...prev, servingUnit: e.target.value as ServingUnit }))}
-            className="px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-          >
-            {SERVING_UNIT_OPTIONS.map(unit => (
-              <option key={unit} value={unit}>{unit}</option>
-            ))}
-          </select>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          <div>
-            <label className="text-xs text-[var(--color-muted)]">Cal</label>
-            <input
-              type="number"
-              value={values.calories}
-              onChange={e => setValues(prev => ({ ...prev, calories: parseFloat(e.target.value) || 0 }))}
-              className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-[var(--color-muted)]">P</label>
-            <input
-              type="number"
-              value={values.protein}
-              onChange={e => setValues(prev => ({ ...prev, protein: parseFloat(e.target.value) || 0 }))}
-              className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-[var(--color-muted)]">C</label>
-            <input
-              type="number"
-              value={values.carbs}
-              onChange={e => setValues(prev => ({ ...prev, carbs: parseFloat(e.target.value) || 0 }))}
-              className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-[var(--color-muted)]">F</label>
-            <input
-              type="number"
-              value={values.fat}
-              onChange={e => setValues(prev => ({ ...prev, fat: parseFloat(e.target.value) || 0 }))}
-              className="w-full px-2 py-1 text-sm bg-[var(--color-surface)] border border-[var(--color-line)] rounded text-[var(--color-text)]"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="p-1 text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-          <button
-            type="submit"
-            className="p-1 text-[var(--color-success)] hover:text-[var(--color-text)] transition-colors"
-          >
-            <Check className="w-4 h-4" />
-          </button>
-        </div>
+        <button
+          onClick={handleSubmit}
+          className="p-1 text-[var(--color-success)] hover:text-[var(--color-text)] transition-colors flex-shrink-0"
+          title="Add food"
+        >
+          <Check className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={onCancel}
+          className="p-1 text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors flex-shrink-0"
+          title="Cancel"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
       </div>
-    </form>
+      {/* Macro icon headers + inputs */}
+      <MacroColumnHeaders />
+      <div className="grid grid-cols-4 gap-1.5">
+        <input
+          type="number"
+          value={values.calories || ''}
+          onChange={e => setValues(prev => ({ ...prev, calories: parseFloat(e.target.value) || 0 }))}
+          onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+          placeholder="0"
+        />
+        <input
+          type="number"
+          value={values.protein || ''}
+          onChange={e => setValues(prev => ({ ...prev, protein: parseFloat(e.target.value) || 0 }))}
+          onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+          placeholder="0"
+        />
+        <input
+          type="number"
+          value={values.carbs || ''}
+          onChange={e => setValues(prev => ({ ...prev, carbs: parseFloat(e.target.value) || 0 }))}
+          onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+          placeholder="0"
+        />
+        <input
+          type="number"
+          value={values.fat || ''}
+          onChange={e => setValues(prev => ({ ...prev, fat: parseFloat(e.target.value) || 0 }))}
+          onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
+          className="w-full px-1 py-1 text-center text-[12px] bg-transparent border border-[var(--color-line)] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-muted)]"
+          placeholder="0"
+        />
+      </div>
+    </div>
   );
 }
 
-// Meal section component with tabbed interface (matching WorkoutLogCard pattern)
+// Meal section component
 function MealSection({
   meal,
-  previousMeal,
-  targetMacros,
   editable,
   onUpdateFood,
   onDeleteFood,
@@ -424,8 +402,6 @@ function MealSection({
   onDeleteMeal,
 }: {
   meal: MealEntry;
-  previousMeal?: MealEntry;
-  targetMacros?: Macros;
   editable?: boolean;
   onUpdateFood?: (foodId: string, food: FoodItem) => void;
   onDeleteFood?: (foodId: string) => void;
@@ -435,7 +411,6 @@ function MealSection({
   const config = mealTypeConfig[meal.mealType];
   const [showAddFood, setShowAddFood] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<'actual' | 'target' | 'previous'>('actual');
 
   return (
     <div className="border-b border-[var(--color-line)] last:border-b-0 py-3 px-3 sm:px-4">
@@ -479,144 +454,46 @@ function MealSection({
 
       {/* Collapsible content */}
       {!isCollapsed && (
-        <>
-          {/* Tabbed interface - always show */}
-          <div className="mt-3 ml-6">
-            {/* Tab buttons */}
-            <TabBar
-              tabs={[
-                { id: 'actual', label: 'ACTUAL' },
-                { id: 'target', label: 'TARGET' },
-                { id: 'previous', label: 'PREV' },
-              ]}
-              activeTab={activeTab}
-              onTabChange={(id) => setActiveTab(id as typeof activeTab)}
-              size="sm"
-            />
-
-              {/* Tab content */}
-              <div className="py-3">
-                {/* ACTUAL Tab */}
-                {activeTab === 'actual' && (
-                  <div className="space-y-1">
-                    {meal.foods.map(food => (
-                      <EditableFoodRow
-                        key={food.id}
-                        food={food}
-                        editable={editable}
-                        onUpdate={f => onUpdateFood?.(food.id, f)}
-                        onDelete={() => onDeleteFood?.(food.id)}
-                      />
-                    ))}
-                    {meal.foods.length === 0 && (
-                      <p className="text-xs text-[var(--color-muted)]">No foods logged yet</p>
-                    )}
-                    {/* Add food button */}
-                    {editable && !showAddFood && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowAddFood(true); }}
-                        className="flex items-center gap-1 mt-2 text-xs font-medium text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                      >
-                        <Plus className="w-3 h-3" />
-                        add food
-                      </button>
-                    )}
-                    {showAddFood && (
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <AddFoodForm
-                          onAdd={(food) => {
-                            onAddFood?.(food);
-                            setShowAddFood(false);
-                          }}
-                          onCancel={() => setShowAddFood(false)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* TARGET Tab */}
-                {activeTab === 'target' && (
-                  <div className="space-y-2">
-                    {targetMacros ? (
-                      <>
-                        <div className="flex items-baseline gap-3">
-                          <span className="text-base font-semibold">{targetMacros.calories}</span>
-                          <span className="text-xs text-[var(--color-muted)]">cal</span>
-                        </div>
-                        <div className="flex gap-2 flex-wrap">
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {targetMacros.protein}g protein
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {targetMacros.carbs}g carbs
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {targetMacros.fat}g fat
-                          </span>
-                        </div>
-                        {/* Progress comparison */}
-                        <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="text-[var(--color-muted)]">Progress:</span>
-                            <span className={meal.totalMacros.calories >= targetMacros.calories ? 'text-[var(--color-success)]' : 'text-[var(--color-muted)]'}>
-                              {Math.round((meal.totalMacros.calories / targetMacros.calories) * 100)}% of target
-                            </span>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-[var(--color-muted)]">No target set</p>
-                    )}
-                  </div>
-                )}
-
-                {/* PREVIOUS Tab */}
-                {activeTab === 'previous' && (
-                  <div className="space-y-2">
-                    {previousMeal && previousMeal.foods.length > 0 ? (
-                      <>
-                        <div className="flex items-baseline gap-3">
-                          <span className="text-base font-semibold">{Math.round(previousMeal.totalMacros.calories)}</span>
-                          <span className="text-xs text-[var(--color-muted)]">cal</span>
-                        </div>
-                        <div className="flex gap-2 flex-wrap">
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {Math.round(previousMeal.totalMacros.protein)}g P
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {Math.round(previousMeal.totalMacros.carbs)}g C
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-[var(--color-line)] font-medium">
-                            {Math.round(previousMeal.totalMacros.fat)}g F
-                          </span>
-                        </div>
-                        {/* Previous foods list */}
-                        <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
-                          <p className="text-[10px] text-[var(--color-muted)] uppercase mb-1">Foods</p>
-                          {previousMeal.foods.slice(0, 5).map((food, idx) => (
-                            <p key={idx} className="text-xs text-[var(--color-muted)]">
-                              {food.name} ({Math.round(food.macros.calories)} cal)
-                            </p>
-                          ))}
-                          {previousMeal.foods.length > 5 && (
-                            <p className="text-xs text-[var(--color-muted)]">
-                              +{previousMeal.foods.length - 5} more
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-[var(--color-muted)]">No previous data</p>
-                    )}
-                  </div>
-                )}
+        <div className="mt-3">
+          <div>
+            {meal.foods.map(food => (
+              <EditableFoodRow
+                key={food.id}
+                food={food}
+                editable={editable}
+                onUpdate={f => onUpdateFood?.(food.id, f)}
+                onDelete={() => onDeleteFood?.(food.id)}
+              />
+            ))}
+            {meal.foods.length === 0 && (
+              <p className="text-xs text-[var(--color-muted)]">No foods logged yet</p>
+            )}
+            {/* Add food button */}
+            {editable && !showAddFood && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowAddFood(true); }}
+                className="flex items-center gap-1 mt-2 text-xs font-medium text-[var(--color-muted)] hover:text-[var(--color-text)]"
+              >
+                <Plus className="w-3 h-3" />
+                add food
+              </button>
+            )}
+            {showAddFood && (
+              <div onClick={(e) => e.stopPropagation()}>
+                <AddFoodForm
+                  onAdd={(food) => {
+                    onAddFood?.(food);
+                    setShowAddFood(false);
+                  }}
+                  onCancel={() => setShowAddFood(false)}
+                />
               </div>
-            </div>
+            )}
+          </div>
 
-          {/* Delete meal button - outside tabs */}
+          {/* Delete meal button */}
           {editable && (
-            <div className="ml-6 mt-2">
+            <div className="mt-2">
               <button
                 onClick={(e) => { e.stopPropagation(); onDeleteMeal?.(); }}
                 className="flex items-center gap-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-error)] transition-colors"
@@ -626,7 +503,7 @@ function MealSection({
               </button>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

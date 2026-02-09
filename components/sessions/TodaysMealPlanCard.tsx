@@ -187,20 +187,7 @@ export function TodaysMealPlanCard({
             <Sparkles className="w-3.5 h-3.5 text-sky-400" />
             <span className="text-[12px] font-medium text-[var(--color-text)]">Today&apos;s Meal Plan</span>
           </div>
-          {hasFoodLogged ? (
-            <button
-              onClick={() => setSosExpanded(!sosExpanded)}
-              disabled={isGenerating}
-              className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
-            >
-              {isGenerating ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <LifeBuoy className="w-3 h-3" />
-              )}
-              SOS
-            </button>
-          ) : (
+          <div className="flex items-center gap-3">
             <button
               onClick={() => onGenerate(preferences || undefined)}
               disabled={isGenerating}
@@ -213,13 +200,21 @@ export function TodaysMealPlanCard({
               )}
               Regenerate
             </button>
-          )}
+            <button
+              onClick={() => setSosExpanded(!sosExpanded)}
+              disabled={isGenerating}
+              className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              <LifeBuoy className="w-3 h-3" />
+              SOS
+            </button>
+          </div>
         </div>
 
         {/* SOS Expanded Inline */}
-        {sosExpanded && dietLog && (
+        {sosExpanded && (
           <div className="px-4 pb-3 space-y-2 border-b border-[var(--color-line)]">
-            <RemainingBudgetBar dietLog={dietLog} />
+            {hasFoodLogged && dietLog && <RemainingBudgetBar dietLog={dietLog} />}
             <input
               type="text"
               value={sosExplanation}
@@ -291,38 +286,45 @@ export function TodaysMealPlanCard({
   // Skipped — don't show anything
   if (skipped) return null;
 
-  // Food logged but no plan yet — SOS pre-generation mode
+  // Food logged but no plan yet — SOS pre-generation mode (collapsed by default)
   if (hasFoodLogged && dietLog) {
     return (
       <div className="px-4 py-3 border-b border-[var(--color-line)] space-y-2">
         <div className="flex items-center gap-2">
-          <LifeBuoy className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-[12px] font-medium text-[var(--color-text)]">Rescue the rest of your day?</span>
-        </div>
-        <RemainingBudgetBar dietLog={dietLog} />
-        <input
-          type="text"
-          value={sosExplanation}
-          onChange={(e) => setSosExplanation(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') onGenerate(sosExplanation || undefined); }}
-          placeholder="What happened? (e.g., had pizza for lunch)"
-          className="w-full px-3 py-2 text-[13px] bg-transparent border border-amber-500/30 focus:outline-none focus:border-amber-400/50 text-[var(--color-text)] placeholder:text-[var(--color-muted)]"
-        />
-        <div className="flex items-center gap-2">
           <button
-            onClick={() => onGenerate(sosExplanation || undefined)}
-            className="flex-1 py-2 text-[13px] font-medium bg-amber-500 text-black flex items-center justify-center gap-1.5 hover:bg-amber-400 transition-colors"
+            onClick={() => setSosExpanded(!sosExpanded)}
+            className="flex-1 flex items-center gap-2 text-left"
           >
-            <LifeBuoy className="w-3.5 h-3.5" />
-            Rescue My Day
+            <LifeBuoy className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-[12px] font-medium text-amber-400">SOS — rescue the rest of your day</span>
           </button>
           <button
             onClick={() => setSkipped(true)}
-            className="px-4 py-2 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            className="px-2 py-1 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors flex-shrink-0"
           >
             Skip
           </button>
         </div>
+        {sosExpanded && (
+          <div className="space-y-2">
+            <RemainingBudgetBar dietLog={dietLog} />
+            <input
+              type="text"
+              value={sosExplanation}
+              onChange={(e) => setSosExplanation(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onGenerate(sosExplanation || undefined); }}
+              placeholder="What happened? (e.g., had pizza for lunch)"
+              className="w-full px-3 py-2 text-[13px] bg-transparent border border-amber-500/30 focus:outline-none focus:border-amber-400/50 text-[var(--color-text)] placeholder:text-[var(--color-muted)]"
+            />
+            <button
+              onClick={() => onGenerate(sosExplanation || undefined)}
+              className="w-full py-2 text-[13px] font-medium bg-amber-500 text-black flex items-center justify-center gap-1.5 hover:bg-amber-400 transition-colors"
+            >
+              <LifeBuoy className="w-3.5 h-3.5" />
+              Rescue My Day
+            </button>
+          </div>
+        )}
       </div>
     );
   }

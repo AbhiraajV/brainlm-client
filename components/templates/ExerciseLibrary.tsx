@@ -6,7 +6,9 @@ import { useExerciseLibrary } from '@/hooks/useExerciseLibrary';
 import { ExerciseDetailRow } from './ExerciseDetailRow';
 import { formatRelativeDate, formatWeight, trendArrow } from '@/lib/gym/exercise-library-utils';
 import { getMuscleGroupColor, formatMuscleGroup, BROAD_MUSCLE_GROUPS, getBroadGroup } from '@/lib/gym/muscle-groups';
-import type { ExerciseLibraryEntry, MuscleGroup } from '@/lib/sessions/types';
+import { convertWeight } from '@/lib/gym/units';
+import { useDisplayUnit, useSetDisplayUnit } from '@/store/gym-settings.store';
+import type { ExerciseLibraryEntry, MuscleGroup, WeightUnit } from '@/lib/sessions/types';
 
 function formatEquipmentType(et: string): string {
   return et.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
@@ -27,6 +29,8 @@ export function ExerciseLibrary() {
   const [muscleFilter, setMuscleFilter] = useState<MuscleGroup | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const displayUnit = useDisplayUnit();
+  const setDisplayUnit = useSetDisplayUnit();
 
   // Derive which broad muscle groups actually exist in the data
   // (sub-groups map to their parent for filter purposes)
@@ -97,6 +101,28 @@ export function ExerciseLibrary() {
             className="flex-1 bg-transparent text-xs text-[var(--color-text)] outline-none placeholder:text-[var(--color-muted)]/50"
           />
         </div>
+        <div className="flex items-center">
+          <button
+            onClick={() => setDisplayUnit('lbs')}
+            className={`text-[10px] px-2 py-0.5 font-medium transition-colors ${
+              displayUnit === 'lbs'
+                ? 'bg-[var(--color-text)] text-[var(--color-bg)]'
+                : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+            }`}
+          >
+            LB
+          </button>
+          <button
+            onClick={() => setDisplayUnit('kg')}
+            className={`text-[10px] px-2 py-0.5 font-medium transition-colors ${
+              displayUnit === 'kg'
+                ? 'bg-[var(--color-text)] text-[var(--color-bg)]'
+                : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+            }`}
+          >
+            KG
+          </button>
+        </div>
         <button
           onClick={handleRefresh}
           disabled={refreshing}
@@ -146,7 +172,7 @@ export function ExerciseLibrary() {
             const key = getKey(ex);
             const isExpanded = expandedId === key;
             // Determine unit from first set of most recent session
-            const unit = ex.sessions[0]?.sets[0]?.weightUnit ?? 'kg';
+            const storedUnit = ex.sessions[0]?.sets[0]?.weightUnit ?? 'lbs';
 
             return (
               <div key={key}>
@@ -202,9 +228,9 @@ export function ExerciseLibrary() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[var(--color-muted)]">
-                        <span>{formatWeight(ex.prWeight, unit)}</span>
+                        <span>{formatWeight(convertWeight(ex.prWeight, storedUnit, displayUnit), displayUnit)}</span>
                         <span className="text-[var(--color-line)]">|</span>
-                        <span>~{Math.round(ex.prE1RM)} e1rm</span>
+                        <span>~{Math.round(convertWeight(ex.prE1RM, storedUnit, displayUnit))} e1rm</span>
                         <span className="text-[var(--color-line)]">|</span>
                         <span>{ex.sessionCount} sessions</span>
                         <span className="text-[var(--color-line)]">|</span>

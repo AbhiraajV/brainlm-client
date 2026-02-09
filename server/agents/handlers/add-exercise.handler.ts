@@ -3,10 +3,11 @@
  * Adds a new exercise to the workout with AI-provided targets and history
  */
 
-import type { WorkoutLog, ExerciseEntry, MuscleGroup, EquipmentType, ExerciseTargets, ExerciseComputed } from '@/lib/sessions/types';
+import type { WorkoutLog, ExerciseEntry, MuscleGroup, EquipmentType, ExerciseTargets, ExerciseComputed, WeightUnit } from '@/lib/sessions/types';
 import type { AddExerciseArgs } from '../gym-coach-tools';
 import { EQUIPMENT_TYPES } from '../gym-coach-tools';
 import { ALL_MUSCLE_GROUPS } from '@/lib/gym/muscle-groups';
+import { convertWeight } from '@/lib/gym/units';
 
 export interface AddExerciseResult {
   workout: WorkoutLog;
@@ -180,9 +181,17 @@ export function handleAddExercise(
   const exerciseId = generateExerciseId();
 
   // Build targets from AI-provided data (AI has history context)
+  // Normalize target weight to canonical unit (lbs) if needed
+  let targetWeight = args.targets?.weight ?? 0;
+  let targetUnit: WeightUnit = (args.targets?.weightUnit || workout.preferredUnit) as WeightUnit;
+  if (args.targets && targetUnit === 'kg') {
+    targetWeight = convertWeight(targetWeight, 'kg', 'lbs');
+    targetUnit = 'lbs';
+  }
+
   const targets: ExerciseTargets | undefined = args.targets ? {
-    weight: args.targets.weight,
-    weightUnit: args.targets.weightUnit || workout.preferredUnit,
+    weight: targetWeight,
+    weightUnit: targetUnit,
     reps: args.targets.reps,
     sets: args.targets.sets,
     rationale: args.targets.rationale,
@@ -191,6 +200,8 @@ export function handleAddExercise(
   } : undefined;
 
   // Build computed with lastSession from AI-provided data
+  // Note: lastSession data may come in kg from historical records — normalize to lbs
+  const lastSessionWeight = args.lastSessionData?.topSet.weight ?? 0;
   const computed: ExerciseComputed | undefined = args.lastSessionData ? {
     totalVolume: 0,
     totalReps: 0,
@@ -198,7 +209,7 @@ export function handleAddExercise(
     lastSession: {
       date: args.lastSessionData.date,
       topSet: {
-        weight: args.lastSessionData.topSet.weight,
+        weight: lastSessionWeight,
         reps: args.lastSessionData.topSet.reps
       }
     }

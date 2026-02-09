@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
 import { EventInput } from "@/components/event-input";
+import { FixedInputContainer } from "@/components/ui/FixedInputContainer";
 
 import { TimezoneSync } from "@/components/TimezoneSync";
 import { requireUser } from "@/server/auth";
@@ -47,23 +48,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             </header>
 
             {/* Main content - add bottom padding for fixed input */}
-            <main className="flex-1 container-padding py-3 sm:py-4 pb-40">
+            <main className="flex-1 container-padding py-3 sm:py-4 pb-24">
                 {children}
             </main>
 
-            {/* Fixed bottom input - full width with minimal margins */}
-            <div className="
-                fixed bottom-0 left-0 right-0
-                z-20
-                px-2 sm:px-3
-                pb-6 pt-4
-                bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)] to-transparent
-                pointer-events-none
-            ">
-                <div className="pointer-events-auto">
-                    <EventInput />
-                </div>
-            </div>
+            {/* Fixed bottom input */}
+            <FixedInputContainer gradient>
+                <EventInput />
+            </FixedInputContainer>
 
         </div>
     );

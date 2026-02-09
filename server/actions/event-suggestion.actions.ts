@@ -22,13 +22,9 @@ import {
   getEventCoachPrompt,
   hasMasterSummary,
 } from '@/server/prompts/tracker-prompts';
-import { executeGymCoachAgent, type LastLoggedSet } from '@/server/agents/gym-coach-agent';
-import { executeDietCoachAgent, type LastLoggedFood } from '@/server/agents/diet-coach-agent';
-import { getKnownExercises, getExerciseLibraryForCoach } from '@/server/actions/exercise-library.actions';
-import type { ExerciseLibrarySummary } from '@/server/actions/exercise-library.actions';
-import { getRecentSessionInsights } from '@/server/actions/gym-history.actions';
-import { expandMuscleGroups } from '@/lib/gym/muscle-groups';
-import type { MuscleGroup } from '@/lib/sessions/types';
+import { executeGymTracker, type LastLoggedSet } from '@/server/agents/gym-tracker-agent';
+import { executeDietTracker, type LastLoggedFood } from '@/server/agents/diet-tracker-agent';
+import { getKnownExercises } from '@/server/actions/exercise-library.actions';
 import type { PRSummary } from '@/lib/sessions/types';
 
 /**
@@ -407,11 +403,11 @@ function createEmptyWorkoutLog(): WorkoutLog {
       totalSets: 0,
       totalReps: 0,
       totalVolume: 0,
-      totalVolumeUnit: 'kg',
+      totalVolumeUnit: 'lbs',
       muscleGroupsWorked: [],
       prCount: 0
     },
-    preferredUnit: 'kg',
+    preferredUnit: 'lbs',
     createdAt: now,
     updatedAt: now
   };
@@ -616,15 +612,15 @@ export async function generateEventSuggestion(
 
   try {
     // =====================================================================
-    // GYM TRACKER: Use tool-calling agent for real-time workout tracking
+    // GYM TRACKER: Use tracker agent for real-time workout data parsing
     // =====================================================================
     if (trackerType === 'gym') {
-      console.log('[generateEventSuggestion] Using gym coach agent with tool calling');
+      console.log('[generateEventSuggestion] Using gym tracker agent');
 
       // Create empty workout log if none exists
       const workoutLog: WorkoutLog = currentWorkoutLog || createEmptyWorkoutLog();
 
-      // Fetch user's known exercises and past session insights for agent context
+      // Fetch user's known exercises for exercise matching
       let knownExercises;
       try {
         knownExercises = await getKnownExercises();
@@ -633,36 +629,13 @@ export async function generateEventSuggestion(
         console.warn('[generateEventSuggestion] Failed to fetch known exercises:', e);
       }
 
-      let pastInsights;
-      try {
-        pastInsights = await getRecentSessionInsights(8);
-        console.log('[generateEventSuggestion] Past insights:', pastInsights.length);
-      } catch (e) {
-        console.warn('[generateEventSuggestion] Failed to fetch past insights:', e);
-      }
-
-      // Fetch filtered exercise library for coach context (target muscles + synergists)
-      let exerciseLibrarySummary: ExerciseLibrarySummary[] | undefined;
-      if (workoutLog.muscleGroups?.length) {
-        try {
-          const expandedGroups = expandMuscleGroups(workoutLog.muscleGroups as MuscleGroup[]);
-          exerciseLibrarySummary = await getExerciseLibraryForCoach(expandedGroups);
-          console.log('[generateEventSuggestion] Exercise library summaries:', exerciseLibrarySummary.length, 'for muscles:', expandedGroups.join(', '));
-        } catch (e) {
-          console.warn('[generateEventSuggestion] Failed to fetch exercise library:', e);
-        }
-      }
-
-      // Build previous messages for context - include BOTH user messages AND coach responses
-      // This gives the coach full conversation awareness for coherent interactions
+      // Build previous messages for context (user messages + tracker responses)
       const previousChatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
       for (const e of previousEvents.slice(-10)) {
-        // User's event
         previousChatMessages.push({
           role: 'user' as const,
           content: e.content
         });
-        // Coach's response (if any)
         if (e.llmComment) {
           previousChatMessages.push({
             role: 'assistant' as const,
@@ -671,31 +644,26 @@ export async function generateEventSuggestion(
         }
       }
 
-      // Execute the gym coach agent with tool calling
-      const agentResult = await executeGymCoachAgent(
+      // Execute the gym tracker agent (no coaching context needed)
+      const agentResult = await executeGymTracker(
         workoutLog,
         eventContent,
-        keyContext,
         previousChatMessages,
-        analysis,
-        cyclePhase,
         lastLoggedSet,
         workoutPlanContext,
         knownExercises,
-        pastInsights,
-        exerciseLibrarySummary
       );
 
-      // Return the result
-      console.log('[generateEventSuggestion] Agent result:', {
+      console.log('[generateEventSuggestion] Tracker result:', {
         toolsUsed: agentResult.toolsUsed,
         prsDetected: agentResult.prsDetected.length,
         lastLoggedSet: agentResult.lastLoggedSet,
+        trackerResponse: agentResult.trackerResponse,
         error: agentResult.error
       });
 
       return {
-        comment: agentResult.coachComment,
+        comment: agentResult.trackerResponse,
         workoutLogJson: JSON.stringify(agentResult.updatedWorkout),
         prsDetected: agentResult.prsDetected,
         lastLoggedSet: agentResult.lastLoggedSet
@@ -703,20 +671,18 @@ export async function generateEventSuggestion(
     }
 
     // =====================================================================
-    // DIET TRACKER: Use tool-calling agent for real-time diet tracking
+    // DIET TRACKER: Use tracker agent for real-time diet data parsing
     // =====================================================================
     if (trackerType === 'diet') {
-      console.log('[generateEventSuggestion] Using diet coach agent with tool calling');
+      console.log('[generateEventSuggestion] Using diet tracker agent');
 
-      // Build previous messages for context - include BOTH user messages AND coach responses
+      // Build previous messages for context (user messages + tracker responses)
       const previousChatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
       for (const e of previousEvents.slice(-10)) {
-        // User's event
         previousChatMessages.push({
           role: 'user' as const,
           content: e.content
         });
-        // Coach's response (if any)
         if (e.llmComment) {
           previousChatMessages.push({
             role: 'assistant' as const,
@@ -725,28 +691,24 @@ export async function generateEventSuggestion(
         }
       }
 
-      // Execute the diet coach agent with tool calling
-      const agentResult = await executeDietCoachAgent(
+      // Execute the diet tracker agent (no coaching context needed)
+      const agentResult = await executeDietTracker(
         currentDietLog,
         eventContent,
-        keyContext,
         previousChatMessages,
-        analysis,
-        cyclePhase,
         lastLoggedFood,
-        dietHistoryContext,
-        dayPlanContext
+        dayPlanContext,
       );
 
-      // Return the result
-      console.log('[generateEventSuggestion] Diet agent result:', {
+      console.log('[generateEventSuggestion] Diet tracker result:', {
         toolsUsed: agentResult.toolsUsed,
         lastLoggedFood: agentResult.lastLoggedFood,
+        trackerResponse: agentResult.trackerResponse,
         error: agentResult.error
       });
 
       return {
-        comment: agentResult.coachComment,
+        comment: agentResult.trackerResponse,
         dietLogJson: JSON.stringify(agentResult.updatedDietLog),
         lastLoggedFood: agentResult.lastLoggedFood
       };

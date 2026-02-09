@@ -20,6 +20,7 @@ import {
   findBestE1RM,
   calculateAverageRPE
 } from '@/lib/gym/formulas';
+import { convertWeight } from '@/lib/gym/units';
 
 export interface ExercisePRData {
   bestE1RM: number;
@@ -157,9 +158,17 @@ export function handleAddSet(
 
   const setNumber = exercise.sets.length + 1;
 
+  // Normalize to canonical unit (lbs)
+  let finalWeight = args.weight;
+  let finalUnit: WeightUnit = args.weightUnit as WeightUnit;
+  if (finalUnit === 'kg') {
+    finalWeight = convertWeight(args.weight, 'kg', 'lbs');
+    finalUnit = 'lbs';
+  }
+
   // Calculate computed fields for the new set
-  const volume = calculateSetVolume(args.weight, args.actualReps);
-  const e1rm = calculateE1RM(args.weight, args.actualReps);
+  const volume = calculateSetVolume(finalWeight, args.actualReps);
+  const e1rm = calculateE1RM(finalWeight, args.actualReps);
 
   // Detect PRs
   let isPR = false;
@@ -177,15 +186,15 @@ export function handleAddSet(
         previousValue: historicalBest.bestE1RM,
         improvement: ((e1rm - historicalBest.bestE1RM) / historicalBest.bestE1RM) * 100
       };
-    } else if (args.weight > historicalBest.bestWeight) {
+    } else if (finalWeight > historicalBest.bestWeight) {
       isPR = true;
       prType = 'weight';
       pr = {
         exerciseName: exercise.exerciseName,
         prType: 'weight',
-        newValue: args.weight,
+        newValue: finalWeight,
         previousValue: historicalBest.bestWeight,
-        improvement: ((args.weight - historicalBest.bestWeight) / historicalBest.bestWeight) * 100
+        improvement: ((finalWeight - historicalBest.bestWeight) / historicalBest.bestWeight) * 100
       };
     }
   } else {
@@ -207,13 +216,13 @@ export function handleAddSet(
       : undefined
   };
 
-  // Create the new set
+  // Create the new set (always stored in lbs)
   const newSet: WorkoutSet = {
     setNumber,
     setType: args.setType,
     actualReps: args.actualReps,
-    weight: args.weight,
-    weightUnit: args.weightUnit as WeightUnit,
+    weight: finalWeight,
+    weightUnit: finalUnit,
     equipmentType: exercise.equipmentType,
     laterality: args.laterality ?? 'bilateral',
     rpe: args.rpe,

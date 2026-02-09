@@ -24,7 +24,7 @@ export function workoutFromTemplate(template: WorkoutTemplate): WorkoutLog {
   const exercises: ExerciseEntry[] = template.exercises.map((te) => {
     const targets: ExerciseTargets = {
       weight: te.targetWeight || 0,
-      weightUnit: te.targetWeightUnit || 'kg',
+      weightUnit: te.targetWeightUnit || 'lbs',
       reps: te.targetReps,
       sets: te.targetSets,
       rationale: `From ${template.name} template`,
@@ -58,11 +58,11 @@ export function workoutFromTemplate(template: WorkoutTemplate): WorkoutLog {
       totalSets: 0,
       totalReps: 0,
       totalVolume: 0,
-      totalVolumeUnit: 'kg',
+      totalVolumeUnit: 'lbs',
       muscleGroupsWorked: template.muscleGroups,
       prCount: 0,
     },
-    preferredUnit: 'kg',
+    preferredUnit: 'lbs',
     createdAt: now,
     updatedAt: now,
   };
@@ -78,7 +78,7 @@ export function workoutFromPlanDay(plan: WorkoutPlan, day: PlanDay): WorkoutLog 
   const exercises: ExerciseEntry[] = day.exercises.map((te) => {
     const targets: ExerciseTargets = {
       weight: te.targetWeight || 0,
-      weightUnit: te.targetWeightUnit || 'kg',
+      weightUnit: te.targetWeightUnit || 'lbs',
       reps: te.targetReps,
       sets: te.targetSets,
       rationale: `From ${plan.name} - ${day.name}`,
@@ -115,11 +115,11 @@ export function workoutFromPlanDay(plan: WorkoutPlan, day: PlanDay): WorkoutLog 
       totalSets: 0,
       totalReps: 0,
       totalVolume: 0,
-      totalVolumeUnit: 'kg',
+      totalVolumeUnit: 'lbs',
       muscleGroupsWorked: day.targetMuscles,
       prCount: 0,
     },
-    preferredUnit: 'kg',
+    preferredUnit: 'lbs',
     createdAt: now,
     updatedAt: now,
   };

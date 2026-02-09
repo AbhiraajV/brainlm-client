@@ -1,14 +1,16 @@
 /**
- * Diet Coach Agent with Tool Calling
+ * Diet Tracker Agent — Pure Data Parser
  *
- * This agent handles real-time diet tracking by processing user messages
- * and calling tools to modify diet data during conversation.
+ * Stripped-down agent focused solely on converting user input into
+ * tool calls that update the diet log. No coaching, no advice.
+ * Uses gpt-4o-mini for fast, cheap data parsing.
+ *
+ * All data-parsing prompt sections are preserved verbatim from
+ * diet-coach-agent.ts to maintain parsing reliability.
  */
 
 import type {
   DietLog,
-  SessionAnalysis,
-  MenstrualCycleInfo
 } from '@/lib/sessions/types';
 import {
   DIET_COACH_TOOLS,
@@ -78,152 +80,41 @@ export interface LastLoggedFood {
   protein: number;
 }
 
-export interface DietCoachAgentResult {
+export interface DietTrackerResult {
   updatedDietLog: DietLog;
-  coachComment: string;
+  trackerResponse: string;   // "OK" | "NO_DATA" | clarification question
   toolsUsed: string[];
-  error?: string;
   lastLoggedFood?: LastLoggedFood;
+  error?: string;
 }
 
 /**
- * Build the system prompt for the diet coach agent
+ * Build the system prompt for the diet tracker agent.
+ * All data-parsing sections are preserved verbatim from diet-coach-agent.ts.
+ * Coaching identity, response rules, and deep user context are removed.
  */
-function buildSystemPrompt(
-  brainTransfer: string,
+function buildTrackerPrompt(
   currentDietLog: DietLog,
-  analysis?: SessionAnalysis,
-  cyclePhase?: MenstrualCycleInfo,
   lastLoggedFood?: LastLoggedFood,
-  dietHistoryContext?: string,
   dayPlanContext?: string
 ): string {
   const dietContext = currentDietLog.meals.length > 0
     ? formatDietLogForPrompt(currentDietLog)
     : '(No meals logged yet - starting fresh)';
 
-  const cycleContext = cyclePhase?.tracking
-    ? `
-## CYCLE PHASE AWARENESS
-Current phase: ${cyclePhase.currentPhase || 'unknown'}
-Day of cycle: ${cyclePhase.dayOfCycle || 'unknown'}
-${cyclePhase.currentPhase === 'luteal' ? '⚠️ Metabolism +100-300cal, cravings are normal - be understanding, not restrictive' : ''}
-${cyclePhase.currentPhase === 'menstrual' ? '🍫 Iron-rich foods help with energy (red meat, spinach, legumes)' : ''}
-${cyclePhase.currentPhase === 'follicular' ? '💪 Good phase for higher protein intake and building habits' : ''}
-${cyclePhase.currentPhase === 'ovulation' ? '⚡ Peak energy - great time for meal prep and healthy routines' : ''}
-`
-    : '';
+  return `You are a structured data parser for diet/nutrition tracking.
+Your ONLY job is to convert user messages into tool calls that update the diet log.
 
-  // Build comprehensive user context - put day-by-day briefings first and most prominent
-  const dayBriefings = analysis?.historyBriefings?.length
-    ? analysis.historyBriefings.map(b =>
-        `### ${b.label}\n${b.fullHistory}\nPatterns: ${b.linkedPatterns.join('; ')}\nInsights: ${b.linkedInsights.join('; ')}\nKey: ${b.keyTakeaways}`
-      ).join('\n\n')
-    : '(No daily briefings available)';
-
-  const userContext = analysis ? `
-## DAY-BY-DAY HISTORY — REFERENCE THIS FOR COACHING CONTEXT
-${dayBriefings}
-
-## RECENT DIET SESSIONS
-${analysis.relevantHistory?.map(h => `${h.date}: ${h.event}`).join('\n') || '(No history)'}
-
-## ADDITIONAL CONTEXT
-${analysis.context || '(No additional context)'}
-` : '';
-
-  // Build deep coaching context from analysis - this gives the coach the WHY behind the user's eating patterns
-  const coachingContext = analysis ? `
-## DEEP USER CONTEXT - USE THIS TO EXPLAIN WHY
-
-${analysis.coachBriefing ? `### Who This User Is
-${analysis.coachBriefing.userProfile}
-
-### What Goes Wrong For Them (eating patterns to watch)
-${analysis.coachBriefing.whatGoesWrong}
-
-### WHY It Goes Wrong (root causes)
-${analysis.coachBriefing.whyItGoesWrong}
-
-### What Has Worked Before
-${analysis.coachBriefing.howWeFixedItBefore}
-
-### Today's Risks
-${analysis.coachBriefing.todaysRisks}
-
-### Recommended Coaching Approach
-${analysis.coachBriefing.recommendedApproach}
-` : ''}
-
-${(analysis.patterns?.length ?? 0) > 0 ? `### Identified Patterns (use these to explain eating behavior)
-${analysis.patterns!.map(p => `- ${p.name}: ${p.description} (trend: ${p.trend}, confidence: ${p.confidence})`).join('\n')}` : ''}
-
-${(analysis.correlations?.length ?? 0) > 0 ? `### Eating Correlations
-${analysis.correlations!.map(c => `- ${c.factor} → ${c.direction} impact on "${c.impact}" (seen ${c.occurrences}x)`).join('\n')}` : ''}
-
-${(analysis.emotionalFactors?.length ?? 0) > 0 ? `### Emotional Eating Triggers
-${analysis.emotionalFactors!.map(e => `- ${e.trigger} → ${e.emotionalResponse} → ${e.behavioralImpact}`).join('\n')}` : ''}
-
-${(analysis.whatWorkedBefore?.length ?? 0) > 0 ? `### Proven Success Strategies
-${analysis.whatWorkedBefore!.map(w => `- When: ${w.situation} → Strategy: ${w.strategy} → Result: ${w.outcome} (worked ${w.timesWorked}x)`).join('\n')}` : ''}
-
-${(analysis.rootCauses?.length ?? 0) > 0 ? `### Root Causes of Struggles
-${analysis.rootCauses!.map(r => `- Behavior: ${r.behavior} → Why: ${r.underlyingWhy}`).join('\n')}` : ''}
-` : '';
-
-  return `You are a REAL nutritionist/dietician sitting with the user, tracking their food in real-time.
-
-## YOUR IDENTITY
-
-You're not a logging assistant. You're not an AI that records data. You ARE a nutrition coach.
-A real coach doesn't say "I've logged your meal" - they say "Good protein hit there, that puts you at 80g for the day. What's the plan for dinner?"
-
-Your job is to:
-1. COACH - Guide the user through their nutrition with actionable feedback
-2. TRACK - Use tools silently to maintain the food log (user never needs to know)
-3. PROGRESS - Always think about daily targets and what's remaining
-
-## REAL-TIME NUTRITION AWARENESS
-
-Before EVERY response, analyze the CURRENT DIET LOG STATE below and think:
-
-1. **What does the log show?**
-   - How many meals? How many foods in each?
-   - Are there foods in the log that weren't mentioned in chat? (User added manually = still happened)
-   - What's the macro distribution? Heavy on carbs? Light on protein?
-
-2. **Where are we in the day?**
-   - Morning, no meals yet? → Guide first meal, protein priority
-   - After breakfast (1 meal)? → Check protein, suggest lunch direction
-   - After lunch (2+ meals)? → Assess progress, plan dinner
-   - Late evening? → Summary mode, plan for next day if needed
-
-3. **What would a real nutritionist say?**
-   - After breakfast: "Good start, 15g protein. Aim for 30g at lunch to stay on track."
-   - After lunch: "That's 60g protein so far, 90 to go. Dinner should be protein-heavy."
-   - If skipped meal: "No lunch logged - you okay? Try to get something in."
-   - If manually added food exists: Acknowledge it! "I see you had a shake earlier."
-
-## THE COACH'S MINDSET
-
-THINK like a nutritionist sitting with the user:
-- You can SEE the diet log (it's your tracking sheet)
-- You NOTICE everything - including foods the user added without telling you
-- You GUIDE the day - "Good protein at breakfast, make sure lunch has some too"
-- You TRACK PROGRESS - compare to their targets, notice patterns
-- You KNOW when to suggest - running low on protein? Mention it
-
-NEVER:
-- Say "I've logged" / "recorded" / "tracking" - tools are invisible
-- Give generic praise without context - "Nice!" means nothing
-- Ignore the current diet log state - if foods are there, acknowledge them
-- Just comment on ONE food in isolation - think about the whole day
-
-ALWAYS:
-- Reference their targets ("that's 80g protein, 70 to go")
-- Think about what's NEXT ("dinner should be protein-heavy to hit your goal")
-- Notice patterns ("you tend to skip lunch - try to get something in")
-- Be encouraging but honest about macros
+RULES:
+- Parse the message and call the appropriate tools to update the diet log
+- If the message contains food data, you MUST call tools — no exceptions
+- After tools execute successfully, respond "OK"
+- If no food data found in the message, respond "NO_DATA"
+- If ambiguous (can't determine what food), ask a brief clarification (under 15 words)
+- NEVER give advice, coaching, analysis, or explain what you logged
+- NEVER say "I've logged", "recorded", "tracking" — just respond "OK"
+- Tools run SILENTLY — the diet log card shows the user what was logged
+- ALWAYS estimate macros — never ask user for exact values
 
 ---
 
@@ -232,7 +123,7 @@ CURRENT SESSION (TODAY — this is what you modify with tools)
 ════════════════════════════════════════
 ${dietContext}
 
-${dietHistoryContext ? `${dietHistoryContext}\n` : ''}${dayPlanContext ? `${dayPlanContext}\n` : ''}## DAILY TARGETS
+${dayPlanContext ? `${dayPlanContext}\n` : ''}## DAILY TARGETS
 - Calories: ${currentDietLog.targets.calories}
 - Protein: ${currentDietLog.targets.protein}g
 - Carbs: ${currentDietLog.targets.carbs}g
@@ -251,43 +142,6 @@ ${dietHistoryContext ? `${dietHistoryContext}\n` : ''}${dayPlanContext ? `${dayP
 
 CRITICAL: If food already appears in CURRENT SESSION above, it is ALREADY LOGGED.
 Only call tools for NEW food from the user's CURRENT message.
-
-── HISTORICAL DATA (past sessions — READ ONLY, never re-log this) ──
-${userContext}
-
-${coachingContext}
-── END HISTORICAL ──
-
-## DOMAIN KNOWLEDGE (User's History)
-${brainTransfer || '(No prior history available)'}
-
-## RESPONSE RULES
-
-DEFAULT: 1 short sentence. The diet log card shows all the numbers — don't repeat them.
-
-GOOD: "Greek yogurt's a smart pick before dinner." / "You tend to overeat Fridays without an afternoon snack."
-BAD: "That's 17g protein, putting you at 80/150g for the day. You've got 70g left for dinner." (log shows this)
-
-WHEN TO SAY MORE (2-3 sentences max):
-- User asks a question → answer it, with reasoning from their history
-- You notice a pattern from their history that's relevant RIGHT NOW (e.g., "When you skip the afternoon snack, you tend to overeat at dinner")
-- User has cravings or is struggling → reference what worked before
-
-NEVER:
-- Recite calories/protein/carbs/fat numbers — the log card shows this
-- Say "That's Xg protein, putting you at Y/Z" — just say "good protein hit" if relevant
-- Give unprompted long advice — keep it tight unless asked
-- Repeat anything already said in this conversation
-- Hallucinate history you don't have — only reference actual data from your context
-- Use generic praise without specific historical backing
-- Say "I've logged" / "recorded" / "tracking" — tools are invisible
-
-USE HISTORY DYNAMICALLY:
-- Compare to their actual past data, not hypotheticals
-- "Last Sunday you did X" / "When you skip the afternoon snack, you tend to overeat at dinner"
-- Only say these when you have the actual data. If you don't have relevant history, just keep it short.
-
-${cycleContext}
 
 ---
 
@@ -383,11 +237,13 @@ If you find ANY of these, you MUST call tools - questions don't cancel this:
 
 **Found E (water/notes)?** → Call update_daily_notes
 
-**Found F only (pure question)?** → No tools, just answer based on their progress
+**Found F only (pure question)?** → No tools, respond "NO_DATA"
 
 ### STEP 3: RESPOND
-After tools complete (or if no tools needed), give coaching response.
-If message had a question + food, answer the question AFTER logging.
+After tools complete, respond "OK".
+If message had a question + food, log the food first, then respond "OK".
+If no food data found, respond "NO_DATA".
+If ambiguous, ask a brief clarification (under 15 words).
 ${lastLoggedFood ? `
 ## LAST LOGGED FOOD (for "another one" / "same thing" / "add another")
 Meal: ${lastLoggedFood.mealType} (ID: ${lastLoggedFood.mealId})
@@ -415,25 +271,25 @@ Infer meal type from context clues first, then fall back to current time:
 
 ## EXAMPLES - FOLLOW TOOL DECISION PROCESS
 
-### ⚠️ CRITICAL: FOOD + QUESTION EXAMPLES (Most Common Mistake)
+### CRITICAL: FOOD + QUESTION EXAMPLES (Most Common Mistake)
 
 User: "had pizza for lunch, is that bad?"
 → SCAN: Found "pizza for lunch" = FOOD DATA (type A) + question
 → DECISION: Food found = MUST call tools
 → Call add_food(mealType: "lunch", name: "Pizza", servingSize: 2, servingUnit: "slice", calories: 500, protein: 20, carbs: 60, fat: 20)
-→ THEN respond with coaching about whether it's "bad" based on their targets
+→ THEN respond "OK"
 → ❌ WRONG: Only answering "pizza is fine in moderation" without logging
 
 User: "protein shake after gym, enough protein today?"
 → SCAN: Found "protein shake" = FOOD DATA + question
 → DECISION: Food found = MUST call tools
 → Call add_food(mealType: "post_workout", name: "Protein Shake", servingSize: 1, servingUnit: "serving", calories: 150, protein: 25, carbs: 5, fat: 2)
-→ THEN answer about their protein progress
+→ THEN respond "OK"
 
 User: "just had a banana, feeling hungry though"
 → SCAN: Found "banana" = FOOD DATA + statement about hunger
 → DECISION: Food found = MUST call tools
-→ Call add_food, THEN address the hunger (suggest protein to feel fuller)
+→ Call add_food, THEN respond "OK"
 
 ### Repeat/Context Shortcuts
 
@@ -472,30 +328,29 @@ User: "I had 3 eggs not 2"
 
 User: "what should I eat for dinner?"
 → SCAN: No food mentioned, just question = PURE QUESTION (type F)
-→ NO TOOL CALLS - answer based on their remaining targets
+→ NO TOOL CALLS - respond "NO_DATA"
 
 User: "am I getting enough protein?"
 → SCAN: No food = PURE QUESTION
-→ NO TOOL CALLS - check their progress and advise
+→ NO TOOL CALLS - respond "NO_DATA"
 
 ## IMPORTANT RULES
 - ALWAYS estimate macros - never ask user for exact values
 - Use your MACRO KNOWLEDGE to provide realistic estimates
 - If user provides an estimate, use it but fill in missing macros reasonably
-- Keep coaching comments to 1-2 SHORT sentences, plain text only
-- No markdown, no formatting, no bullet points - just plain conversational text
+- No markdown, no formatting, no bullet points - just plain text
 
 ## FINAL RULES
 
-- Keep response to 1 short sentence unless user asked a question or you have a genuinely useful insight from history
-- No markdown, no formatting, no bullet points - just plain conversational text
+- Response must be "OK", "NO_DATA", or a brief clarification question (under 15 words)
+- No markdown, no formatting, no bullet points - just plain text
 - NEVER recite numbers the log card already shows
 - If user provides food data or asks about food they ate, you MUST call add_food. Never just comment.
 `;
 }
 
 /**
- * Format diet log for prompt context
+ * Format diet log for prompt context (verbatim from diet-coach-agent.ts)
  */
 function formatDietLogForPrompt(dietLog: DietLog): string {
   const lines: string[] = [];
@@ -534,23 +389,19 @@ function formatDietLogForPrompt(dietLog: DietLog): string {
 }
 
 /**
- * Execute the diet coach agent
+ * Execute the diet tracker agent
  */
-export async function executeDietCoachAgent(
+export async function executeDietTracker(
   currentDietLog: DietLog | undefined,
   userMessage: string,
-  brainTransfer: string,
   previousMessages: ChatMessage[] = [],
-  analysis?: SessionAnalysis,
-  cyclePhase?: MenstrualCycleInfo,
   lastLoggedFood?: LastLoggedFood,
-  dietHistoryContext?: string,
-  dayPlanContext?: string
-): Promise<DietCoachAgentResult> {
+  dayPlanContext?: string,
+): Promise<DietTrackerResult> {
   if (!OPENAI_API_KEY) {
     return {
       updatedDietLog: currentDietLog || createEmptyDietLog(),
-      coachComment: 'Configuration error - please check API settings.',
+      trackerResponse: 'Configuration error - please check API settings.',
       toolsUsed: [],
       error: 'No OpenAI API key configured'
     };
@@ -559,7 +410,7 @@ export async function executeDietCoachAgent(
   // Create empty diet log if none exists
   const dietLog = currentDietLog || createEmptyDietLog();
 
-  const systemPrompt = buildSystemPrompt(brainTransfer, dietLog, analysis, cyclePhase, lastLoggedFood, dietHistoryContext, dayPlanContext);
+  const systemPrompt = buildTrackerPrompt(dietLog, lastLoggedFood, dayPlanContext);
 
   // Build message history
   const messages: ChatMessage[] = [
@@ -569,13 +420,13 @@ export async function executeDietCoachAgent(
   ];
 
   try {
-    // Initial API call with tools
+    // Phase 1: Initial API call with tools
     const response = await callOpenAI(messages, true);
 
     if (!response.choices?.[0]?.message) {
       return {
         updatedDietLog: dietLog,
-        coachComment: 'Failed to get response from AI.',
+        trackerResponse: 'Failed to get response from AI.',
         toolsUsed: [],
         error: 'Empty response'
       };
@@ -630,7 +481,7 @@ export async function executeDietCoachAgent(
             tool_call_id: toolCall.id
           });
         } catch (toolError) {
-          console.error(`[DietCoachAgent] Tool ${toolName} error:`, toolError);
+          console.error(`[DietTracker] Tool ${toolName} error:`, toolError);
           toolResults.push({
             role: 'tool',
             content: JSON.stringify({
@@ -642,7 +493,7 @@ export async function executeDietCoachAgent(
         }
       }
 
-      // Verification pass: inject updated state WITH tools still enabled
+      // Phase 2: Verification pass — inject updated state WITH tools still enabled
       const updatedDietContext = formatDietLogForPrompt(workingDietLog);
       const verificationMessages: ChatMessage[] = [
         ...messages,
@@ -657,7 +508,7 @@ export async function executeDietCoachAgent(
           content: `UPDATED DIET LOG STATE after your tool calls:
 ${updatedDietContext}
 
-VERIFY: Does every piece of food data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond with your coaching comment (1 short sentence, no macro recitation).`
+VERIFY: Does every piece of food data from the user's message appear correctly in the log above? If something is missing or wrong, call the appropriate tool to fix it. If everything is correct, respond "OK".`
         }
       ];
 
@@ -703,7 +554,7 @@ VERIFY: Does every piece of food data from the user's message appear correctly i
               tool_call_id: toolCall.id
             });
           } catch (toolError) {
-            console.error(`[DietCoachAgent] Verification tool ${toolName} error:`, toolError);
+            console.error(`[DietTracker] Verification tool ${toolName} error:`, toolError);
             verificationToolResults.push({
               role: 'tool',
               content: JSON.stringify({
@@ -715,7 +566,7 @@ VERIFY: Does every piece of food data from the user's message appear correctly i
           }
         }
 
-        // Final call without tools for coaching comment
+        // Final call without tools for tracker response
         const finalMessages: ChatMessage[] = [
           ...verificationMessages,
           {
@@ -727,38 +578,38 @@ VERIFY: Does every piece of food data from the user's message appear correctly i
         ];
 
         const finalResponse = await callOpenAI(finalMessages, false);
-        const coachComment = finalResponse.choices?.[0]?.message?.content || 'Done!';
+        const trackerResponse = finalResponse.choices?.[0]?.message?.content || 'OK';
 
         return {
           updatedDietLog: workingDietLog,
-          coachComment,
+          trackerResponse,
           toolsUsed,
           lastLoggedFood: newLastLoggedFood
         };
       }
 
-      // No verification tool calls — use the verification response as the coaching comment
-      const coachComment = verificationMessage?.content || 'Done!';
+      // No verification tool calls — use the verification response
+      const trackerResponse = verificationMessage?.content || 'OK';
 
       return {
         updatedDietLog: workingDietLog,
-        coachComment,
+        trackerResponse,
         toolsUsed,
         lastLoggedFood: newLastLoggedFood
       };
     }
 
-    // No tool calls - just return the comment
+    // No tool calls - return the response (likely "NO_DATA" or a clarification)
     return {
       updatedDietLog: workingDietLog,
-      coachComment: assistantMessage.content || '',
+      trackerResponse: assistantMessage.content || 'NO_DATA',
       toolsUsed: []
     };
   } catch (error) {
-    console.error('[DietCoachAgent] Error:', error);
+    console.error('[DietTracker] Error:', error);
     return {
       updatedDietLog: dietLog,
-      coachComment: 'Something went wrong. Please try again.',
+      trackerResponse: 'Something went wrong. Please try again.',
       toolsUsed: [],
       error: error instanceof Error ? error.message : 'Unknown error'
     };
@@ -766,17 +617,17 @@ VERIFY: Does every piece of food data from the user's message appear correctly i
 }
 
 /**
- * Call OpenAI API
+ * Call OpenAI API — uses gpt-4o-mini for cost efficiency
  */
 async function callOpenAI(
   messages: ChatMessage[],
   includeTools: boolean
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages,
-    temperature: 0.1, // Low for strict instruction following (matches gym agent)
-    max_tokens: includeTools ? 1024 : 200 // 1024 for tool reasoning, 200 for short coaching comments
+    temperature: 0.1, // Very low for strict instruction following
+    max_tokens: includeTools ? 1024 : 100 // 1024 for tool reasoning, 100 for short tracker responses
   };
 
   if (includeTools) {
@@ -796,7 +647,7 @@ async function callOpenAI(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    console.error('[DietCoachAgent] OpenAI error:', error);
+    console.error('[DietTracker] OpenAI error:', error);
     throw new Error('OpenAI API error');
   }
 
@@ -805,6 +656,7 @@ async function callOpenAI(
 
 /**
  * Process a tool call and return updated diet log
+ * (Verbatim from diet-coach-agent.ts)
  */
 async function processToolCall(
   dietLog: DietLog,
@@ -883,9 +735,8 @@ async function processToolCall(
     }
 
     case 'get_food_history': {
-      // TODO: Implement food history query from database
       const historyArgs = args as GetFoodHistoryArgs;
-      console.log('[DietCoachAgent] Food history query:', historyArgs);
+      console.log('[DietTracker] Food history query:', historyArgs);
       return {
         dietLog,
         data: { history: [], message: 'Food history not yet implemented' }
@@ -901,7 +752,7 @@ async function processToolCall(
     }
 
     default:
-      console.warn(`[DietCoachAgent] Unknown tool: ${toolName}`);
+      console.warn(`[DietTracker] Unknown tool: ${toolName}`);
       return { dietLog };
   }
 }

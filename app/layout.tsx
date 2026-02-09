@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Gravitas_One, Libre_Baskerville, Montserrat } from "next/font/google";
 import "./globals.css";
@@ -30,13 +30,21 @@ export const metadata: Metadata = {
   description: "Your personal reflection companion",
 };
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  interactiveWidget: 'resizes-content',
+  viewportFit: 'cover',
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider signInFallbackRedirectUrl="/" signUpFallbackRedirectUrl="/">
       <html lang="en">
         <body className={`${gravitas.variable} ${libre.variable} ${montserrat.variable} antialiased`}>
           {children}
