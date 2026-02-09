@@ -5,7 +5,7 @@
  * Takes the full coaching context (analysis, patterns, history) and
  * returns evidence-based advice.
  *
- * Uses gpt-4o-mini for fast responses.
+ * Uses gpt-4.1-mini for fast responses.
  */
 
 import type {
@@ -192,7 +192,7 @@ export async function executeCoach(
 
   try {
     const requestBody: Record<string, unknown> = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages,
       temperature: 0.7,  // Slightly higher for natural conversation
       max_tokens: 300,

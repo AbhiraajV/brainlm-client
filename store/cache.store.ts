@@ -12,7 +12,10 @@ import type {
 } from '@/lib/sessions/types';
 
 const STORAGE_KEY = 'brainlm:cache';
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
+
+// Max analysis cache entries per tracker type prefix (prevents localStorage bloat)
+const MAX_ANALYSIS_ENTRIES_PER_TYPE = 5;
 
 const initialState: CacheState = {
   knowledgeCache: {},
@@ -96,27 +99,45 @@ export const useCacheStore = create<CacheStore>()(
       },
 
       // ========================================================================
-      // ANALYSIS CACHE ACTIONS
+      // ANALYSIS CACHE ACTIONS (key: trackerType or trackerType:workoutContextKey)
       // ========================================================================
 
-      setAnalysisCache: (trackerType: TrackerType, cache: CachedAnalysis): void => {
-        set((state) => ({
-          analysisCache: {
+      setAnalysisCache: (cacheKey: string, cache: CachedAnalysis): void => {
+        set((state) => {
+          const newCache = {
             ...state.analysisCache,
-            [trackerType]: cache,
-          },
-        }));
+            [cacheKey]: cache,
+          };
+
+          // Evict oldest entries if too many for this tracker type prefix
+          const prefix = cacheKey.split(':')[0]; // e.g. "gym" from "gym:Push Day:chest,shoulders"
+          const prefixKeys = Object.keys(newCache).filter(
+            (k) => k === prefix || k.startsWith(prefix + ':')
+          );
+          if (prefixKeys.length > MAX_ANALYSIS_ENTRIES_PER_TYPE) {
+            // Sort by generatedAt ascending (oldest first), evict oldest
+            prefixKeys.sort(
+              (a, b) => new Date(newCache[a].generatedAt).getTime() - new Date(newCache[b].generatedAt).getTime()
+            );
+            const toEvict = prefixKeys.slice(0, prefixKeys.length - MAX_ANALYSIS_ENTRIES_PER_TYPE);
+            for (const key of toEvict) {
+              delete newCache[key];
+            }
+          }
+
+          return { analysisCache: newCache };
+        });
       },
 
-      updateAnalysisCache: (trackerType: TrackerType, updates: Partial<CachedAnalysis>): void => {
+      updateAnalysisCache: (cacheKey: string, updates: Partial<CachedAnalysis>): void => {
         set((state) => {
-          const existing = state.analysisCache[trackerType];
+          const existing = state.analysisCache[cacheKey];
           if (!existing) return state;
 
           return {
             analysisCache: {
               ...state.analysisCache,
-              [trackerType]: {
+              [cacheKey]: {
                 ...existing,
                 ...updates,
               },
@@ -128,8 +149,14 @@ export const useCacheStore = create<CacheStore>()(
       clearAnalysisCache: (trackerType?: TrackerType): void => {
         set((state) => {
           if (trackerType) {
-            const { [trackerType]: _, ...rest } = state.analysisCache;
-            return { analysisCache: rest };
+            // Clear all keys matching this tracker type prefix
+            const newCache: Record<string, CachedAnalysis> = {};
+            for (const [key, value] of Object.entries(state.analysisCache)) {
+              if (key !== trackerType && !key.startsWith(trackerType + ':')) {
+                newCache[key] = value;
+              }
+            }
+            return { analysisCache: newCache };
           }
           return { analysisCache: {} };
         });
@@ -188,13 +215,19 @@ export const useCacheStore = create<CacheStore>()(
         gymDataCache: state.gymDataCache,
       }),
       migrate: (persistedState: unknown, version: number) => {
-        // Handle migration from older versions
         if (!persistedState) {
           return initialState;
         }
 
         try {
-          return persistedState as CacheState;
+          const state = persistedState as CacheState;
+          if (version < 2) {
+            // v1 → v2: analysisCache keys were TrackerType, now string.
+            // Old keys (e.g. "gym", "diet") are still valid string keys — no transform needed.
+            // Just clear analysis cache to avoid stale data with old format.
+            return { ...state, analysisCache: {} };
+          }
+          return state;
         } catch {
           console.warn('[CacheStore] Failed to migrate cache data, resetting');
           return initialState;
@@ -211,8 +244,8 @@ export const useCacheStore = create<CacheStore>()(
 export const selectKnowledgeCache = (trackerType: TrackerType) => (state: CacheStore) =>
   state.knowledgeCache[trackerType] || null;
 
-export const selectAnalysisCache = (trackerType: TrackerType) => (state: CacheStore) =>
-  state.analysisCache[trackerType] || null;
+export const selectAnalysisCache = (cacheKey: string) => (state: CacheStore) =>
+  state.analysisCache[cacheKey] || null;
 
 export const selectGymDataCache = (state: CacheStore) => state.gymDataCache;
 

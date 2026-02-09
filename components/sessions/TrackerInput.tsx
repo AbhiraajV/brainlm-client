@@ -5,7 +5,6 @@ import { Check, AlertCircle } from 'lucide-react';
 import { ChatInputBar } from '@/components/ui/ChatInputBar';
 
 interface TrackerInputProps {
-  sessionId: string;
   trackerType: 'gym' | 'diet';
   isProcessing: boolean;
   onSubmit: (text: string) => void;

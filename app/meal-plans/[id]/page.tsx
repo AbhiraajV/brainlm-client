@@ -4,7 +4,7 @@ import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Check, Play } from 'lucide-react';
 import { useMealPlansStore, useMealPlan } from '@/store/meal-plans.store';
-import { useSessionsStore } from '@/store/sessions.store';
+import { useTrackerStore } from '@/store/tracker.store';
 import { useHydrated } from '@/hooks/useHydrated';
 import { MealPlanMealList } from '@/components/meal-plans';
 import { BackButton } from '@/components/ui/BackButton';
@@ -29,10 +29,6 @@ export default function MealPlanDetailPage({ params }: { params: Promise<{ id: s
   const updateMealPlan = useMealPlansStore((s) => s.updateMealPlan);
   const incrementMealPlanUsage = useMealPlansStore((s) => s.incrementMealPlanUsage);
 
-  const createSession = useSessionsStore((s) => s.createSession);
-  const setTrackerType = useSessionsStore((s) => s.setTrackerType);
-  const setDietLog = useSessionsStore((s) => s.setDietLog);
-
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
 
@@ -46,14 +42,13 @@ export default function MealPlanDetailPage({ params }: { params: Promise<{ id: s
   const handleUsePlan = () => {
     if (!plan) return;
 
-    const sessionId = createSession(plan.name, `Meal Plan: ${plan.name}`);
-    setTrackerType(sessionId, 'diet');
-
+    const store = useTrackerStore.getState();
+    store.initTracker('diet');
     const dietLog = createEmptyDietLog(plan.targets);
-    setDietLog(sessionId, dietLog);
+    store.setDietLog(dietLog);
 
     incrementMealPlanUsage(plan.id);
-    router.push(`/sessions/${sessionId}`);
+    router.push('/diet');
   };
 
   if (!hydrated) {

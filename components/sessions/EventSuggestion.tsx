@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { MessageCircle, AlertCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface EventSuggestionProps {
-  sessionId: string;
+  sessionId?: string;
   eventId: string;
   status?: 'pending' | 'generating' | 'completed' | 'failed';
   comment?: string;

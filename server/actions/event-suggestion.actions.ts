@@ -718,7 +718,7 @@ export async function generateEventSuggestion(
     // ADDICTION & GENERAL TRACKERS: Use simple OpenAI response
     // =====================================================================
     const requestBody: Record<string, unknown> = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: `Event: ${eventContent}` },

@@ -3,19 +3,18 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import type { SessionKnowledge as SessionKnowledgeType, SessionUnderstanding as SessionUnderstandingType, SessionAnalysis as SessionAnalysisType, TrackerType } from '@/lib/sessions/types';
-import { useSessionsStore } from '@/store/sessions.store';
+import { useTrackerStore, type ActiveTrackerType } from '@/store/tracker.store';
 import { useSessionKnowledgeWithCache } from '@/hooks/useSessionKnowledgeWithCache';
 import { useSessionAnalysisWithCache } from '@/hooks/useSessionAnalysisWithCache';
 import { useDietGoalProfile } from '@/store/diet-goals.store';
 
 interface Props {
-  sessionId: string;
+  trackerType: ActiveTrackerType;
   title: string;
-  context: string;
+  context?: string;
   knowledge?: SessionKnowledgeType;
   understanding?: SessionUnderstandingType;
   analysis?: SessionAnalysisType;
-  trackerType?: TrackerType;
   isCompleted?: boolean;
   hasEvents?: boolean;
   onComplete?: () => void;
@@ -24,19 +23,18 @@ interface Props {
 }
 
 export function SessionInfoCard({
-  sessionId,
+  trackerType,
   title,
   context,
   knowledge,
   analysis,
-  trackerType,
   isCompleted,
   hasEvents,
   onComplete,
   isCompleting,
   gymWorkoutContext
 }: Props) {
-  const isGymSession = analysis?.sessionType === 'gym' || trackerType === 'gym';
+  const isGymSession = trackerType === 'gym';
   const displayTitle = isGymSession ? 'Gym' : title;
 
   const analyzingRef = useRef(false);
@@ -45,8 +43,8 @@ export function SessionInfoCard({
   const [isLoadingKnowledge, setIsLoadingKnowledge] = useState(false);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
 
-  const setSessionKnowledge = useSessionsStore((state) => state.setSessionKnowledge);
-  const setSessionAnalysis = useSessionsStore((state) => state.setSessionAnalysis);
+  const setKnowledge = useTrackerStore((state) => state.setKnowledge);
+  const setAnalysis = useTrackerStore((state) => state.setAnalysis);
 
   const { fetchKnowledge: fetchKnowledgeWithCache } = useSessionKnowledgeWithCache();
   const { analyzeWithCache } = useSessionAnalysisWithCache();
@@ -68,19 +66,17 @@ export function SessionInfoCard({
 
   useEffect(() => {
     if (knowledge) return;
-    if (knowledgeFetchedRef.current === `${sessionId}:${trackerType}`) return;
-    if (!trackerType || trackerType === 'general' || trackerType === 'habit') return;
+    if (knowledgeFetchedRef.current === trackerType) return;
+    if (trackerType === 'habit') return;
 
-    knowledgeFetchedRef.current = `${sessionId}:${trackerType}`;
-
-    const currentTrackerType = trackerType;
+    knowledgeFetchedRef.current = trackerType;
 
     async function loadKnowledge() {
       setIsLoadingKnowledge(true);
       try {
-        const cachedResult = await fetchKnowledgeWithCache(currentTrackerType);
+        const cachedResult = await fetchKnowledgeWithCache(trackerType);
         if (cachedResult) {
-          setSessionKnowledge(sessionId, cachedResult.knowledge);
+          setKnowledge(trackerType, cachedResult.knowledge);
         }
       } catch (err) {
         console.error('[SessionInfoCard] Error fetching knowledge:', err);
@@ -90,20 +86,16 @@ export function SessionInfoCard({
     }
 
     loadKnowledge();
-  }, [sessionId, trackerType, knowledge, setSessionKnowledge, fetchKnowledgeWithCache]);
+  }, [trackerType, knowledge, setKnowledge, fetchKnowledgeWithCache]);
 
   useEffect(() => {
     if (!knowledge || analyzingRef.current) return;
-
-    // For gym sessions, wait until workout is selected (gymWorkoutContext becomes non-null)
     if (trackerType === 'gym' && gymWorkoutContext === null) return;
 
-    // Compute workout context key to detect workout selection changes
     const currentWorkoutKey = gymWorkoutContext
       ? `${gymWorkoutContext.workoutName}:${[...gymWorkoutContext.muscleGroups].sort().join(',')}`
       : undefined;
 
-    // If analysis already exists and workout context hasn't changed, skip
     if (analysis && analysisWorkoutKeyRef.current === currentWorkoutKey) return;
 
     const totalItems = knowledge.interpretations.length + knowledge.patterns.length +
@@ -117,10 +109,9 @@ export function SessionInfoCard({
     async function generateAnalysis() {
       setIsLoadingAnalysis(true);
       try {
-        const effectiveType = trackerType || 'general';
-        const cachedResult = await analyzeWithCache(title, context, knowledge!, effectiveType, dietTargets, gymWorkoutContext ?? undefined);
+        const cachedResult = await analyzeWithCache(title, context || '', knowledge!, trackerType, dietTargets, gymWorkoutContext ?? undefined);
         if (cachedResult) {
-          setSessionAnalysis(sessionId, cachedResult.analysis);
+          setAnalysis(trackerType, cachedResult.analysis);
         }
       } catch (err) {
         console.error('[SessionInfoCard] Error analyzing session:', err);
@@ -134,15 +125,11 @@ export function SessionInfoCard({
     return () => {
       analyzingRef.current = false;
     };
-  }, [sessionId, title, context, knowledge, analysis, trackerType, setSessionAnalysis, analyzeWithCache, dietTargets, gymWorkoutContext]);
+  }, [title, context, knowledge, analysis, trackerType, setAnalysis, analyzeWithCache, dietTargets, gymWorkoutContext]);
 
   const isLoading = isLoadingKnowledge || isLoadingAnalysis;
 
-  const coachLabel = analysis?.sessionType
-    ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit', sleep: 'sleep' }[analysis.sessionType]
-    : trackerType
-      ? { gym: 'gym', diet: 'diet', addiction: 'recovery', general: 'coach', habit: 'habit', sleep: 'sleep' }[trackerType]
-      : null;
+  const coachLabel = { gym: 'gym', diet: 'diet', habit: 'habit' }[trackerType];
 
   return (
     <div className="-mx-5 sm:-mx-7 px-4 py-2.5 border-b border-[var(--color-line)] flex items-center justify-between gap-3">

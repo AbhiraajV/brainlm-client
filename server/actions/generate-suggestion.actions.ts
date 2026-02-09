@@ -204,7 +204,7 @@ export async function generateWorkoutSuggestion(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o', // Use full model for better reasoning on workout logic
+        model: 'gpt-4.1', // Use full model for better reasoning on workout logic
         messages: [
           { role: 'system', content: WORKOUT_SUGGESTION_PROMPT },
           { role: 'user', content: input },
@@ -403,7 +403,7 @@ export async function generateDietSuggestion(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: DIET_SUGGESTION_PROMPT },
           { role: 'user', content: input },

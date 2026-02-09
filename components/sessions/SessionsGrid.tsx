@@ -3,9 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Dumbbell, Utensils, CheckSquare, Moon, Check, MoreVertical, RefreshCw, Loader2 } from 'lucide-react';
-import { useSessionsStore, selectSessions } from '@/store/sessions.store';
+import { useTrackerStore } from '@/store/tracker.store';
 import type { TrackerType } from '@/lib/sessions/types';
-import { SessionModal, type QuickSessionType } from '@/components/sessions/SessionModal';
 import { useSleepStore } from '@/store/sleep.store';
 import { NavMiniCards } from './NavMiniCards';
 import { getGoogleFitStatus, disconnectGoogleFit } from '@/server/actions/google-fit.actions';
@@ -17,25 +16,20 @@ interface AppConfig {
   icon: React.ElementType;
   color: string;
   bgGradient: string;
-  trackerType: TrackerType | 'habit';
-  comingSoon?: boolean;
-  onClick?: () => void;
+  trackerType: 'gym' | 'diet' | 'habit' | 'sleep';
+  route?: string;
 }
 
 export function SessionsGrid() {
-  const allSessions = useSessionsStore(selectSessions);
-  const sessions = allSessions.filter(s => !s.isCompleted);
-  const createSession = useSessionsStore((s) => s.createSession);
-  const setTrackerType = useSessionsStore((s) => s.setTrackerType);
-  const deleteSession = useSessionsStore((s) => s.deleteSession);
-  const markSessionCompleted = useSessionsStore((s) => s.markSessionCompleted);
+  const gymState = useTrackerStore((s) => s.gym);
+  const dietState = useTrackerStore((s) => s.diet);
+  const habitState = useTrackerStore((s) => s.habit);
+  const resetTracker = useTrackerStore((s) => s.resetTracker);
   const router = useRouter();
 
   const sleepEnabled = useSleepStore((s) => s.enabled);
   const setSleepEnabled = useSleepStore((s) => s.setEnabled);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [quickType, setQuickType] = useState<QuickSessionType | undefined>(undefined);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -64,141 +58,59 @@ export function SessionsGrid() {
     }
   }, [openMenuId]);
 
-  // Find active sessions for each app type
-  const findActiveSession = (type: TrackerType | 'habit') => {
-    const today = new Date().toDateString();
-    return sessions.find(
-      (s) =>
-        s.trackerType === type &&
-        new Date(s.createdAt).toDateString() === today &&
-        !s.isCompleted
-    );
+  // Check if a tracker type has an active (non-completed) state
+  const isActive = (type: 'gym' | 'diet' | 'habit') => {
+    const state = { gym: gymState, diet: dietState, habit: habitState }[type];
+    return !!state && !state.isCompleted;
   };
 
   // Get session stats for display
-  const getSessionStats = (type: TrackerType | 'habit') => {
-    const session = findActiveSession(type);
-    if (!session) return null;
-
-    if (type === 'gym' && session.workoutLog) {
-      const log = session.workoutLog;
-      return {
-        primary: `${log.summary.totalExercises} exercises`,
-        secondary: `${log.summary.totalSets} sets`
-      };
+  const getSessionStats = (type: 'gym' | 'diet' | 'habit') => {
+    if (type === 'gym' && gymState?.workoutLog) {
+      const log = gymState.workoutLog;
+      return { primary: `${log.summary.totalExercises} exercises`, secondary: `${log.summary.totalSets} sets` };
     }
-
-    if (type === 'diet' && session.dietLog) {
-      const log = session.dietLog;
-      return {
-        primary: `${Math.round(log.summary.progress.consumed.calories)} cal`,
-        secondary: `${Math.round(log.summary.progress.consumed.protein)}g protein`
-      };
+    if (type === 'diet' && dietState?.dietLog) {
+      const log = dietState.dietLog;
+      return { primary: `${Math.round(log.summary.progress.consumed.calories)} cal`, secondary: `${Math.round(log.summary.progress.consumed.protein)}g protein` };
     }
-
-    if (type === 'habit' && session.habitLog) {
-      const log = session.habitLog;
-      return {
-        primary: `${log.summary.completedHabits}/${log.summary.totalHabits} done`,
-        secondary: `${log.summary.completionRate}%`
-      };
+    if (type === 'habit' && habitState?.habitLog) {
+      const log = habitState.habitLog;
+      return { primary: `${log.summary.completedHabits}/${log.summary.totalHabits} done`, secondary: `${log.summary.completionRate}%` };
     }
-
-    return { primary: 'In progress', secondary: '' };
+    return null;
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setQuickType(undefined);
-  };
-
-  const handleSessionCreated = (sessionId: string) => {
-    router.push(`/sessions/${sessionId}`);
-  };
-
-  const handleComplete = (e: React.MouseEvent, type: TrackerType | 'habit') => {
+  const handleComplete = (e: React.MouseEvent, type: 'gym' | 'diet' | 'habit') => {
     e.stopPropagation();
-    const session = findActiveSession(type);
-    if (session) {
-      markSessionCompleted(session.id);
-    }
+    resetTracker(type);
   };
 
-  const handleDelete = (e: React.MouseEvent, type: TrackerType | 'habit') => {
+  const handleDelete = (e: React.MouseEvent, type: 'gym' | 'diet' | 'habit') => {
     e.stopPropagation();
     setOpenMenuId(null);
-    const session = findActiveSession(type);
-    if (session) {
-      deleteSession(session.id);
-    }
+    resetTracker(type);
   };
 
-  // App configurations — 5 apps (no Focus)
   const apps: AppConfig[] = [
     {
-      id: 'gym',
-      name: 'Gym',
-      description: 'Track workouts & PRs',
-      icon: Dumbbell,
-      color: '#ff6b6b',
-      bgGradient: 'rgba(255, 107, 107, 0.2)',
-      trackerType: 'gym',
-      onClick: () => {
-        const active = findActiveSession('gym');
-        if (active) {
-          router.push(`/sessions/${active.id}`);
-          return;
-        }
-        const newId = createSession('Gym App', 'Track workouts, PRs, and become your best self');
-        setTrackerType(newId, 'gym' as TrackerType);
-        router.push(`/sessions/${newId}`);
-      }
+      id: 'gym', name: 'Gym', description: 'Track workouts & PRs',
+      icon: Dumbbell, color: '#ff6b6b', bgGradient: 'rgba(255, 107, 107, 0.2)',
+      trackerType: 'gym', route: '/gym',
     },
     {
-      id: 'diet',
-      name: 'Diet',
-      description: 'Track meals & macros',
-      icon: Utensils,
-      color: '#4ade80',
-      bgGradient: 'rgba(74, 222, 128, 0.2)',
-      trackerType: 'diet',
-      onClick: () => {
-        const active = findActiveSession('diet');
-        if (active) {
-          router.push(`/sessions/${active.id}`);
-          return;
-        }
-        const newId = createSession('Diet Tracker', 'Track meals and stay on target');
-        setTrackerType(newId, 'diet' as TrackerType);
-        router.push(`/sessions/${newId}`);
-      }
+      id: 'diet', name: 'Diet', description: 'Track meals & macros',
+      icon: Utensils, color: '#4ade80', bgGradient: 'rgba(74, 222, 128, 0.2)',
+      trackerType: 'diet', route: '/diet',
     },
     {
-      id: 'habit',
-      name: 'Habits',
-      description: 'Build daily routines',
-      icon: CheckSquare,
-      color: '#c084fc',
-      bgGradient: 'rgba(192, 132, 252, 0.2)',
-      trackerType: 'habit',
-      onClick: () => {
-        const active = findActiveSession('habit');
-        if (active) {
-          router.push(`/sessions/${active.id}`);
-          return;
-        }
-        const newId = createSession('Habit Tracker', 'Track daily habits and build consistency');
-        setTrackerType(newId, 'habit' as TrackerType);
-        router.push(`/sessions/${newId}`);
-      }
+      id: 'habit', name: 'Habits', description: 'Build daily routines',
+      icon: CheckSquare, color: '#c084fc', bgGradient: 'rgba(192, 132, 252, 0.2)',
+      trackerType: 'habit', route: '/habit',
     },
     {
-      id: 'sleep',
-      name: 'Sleep',
-      description: 'Track sleep quality',
-      icon: Moon,
-      color: '#818cf8',
-      bgGradient: 'rgba(129, 140, 248, 0.2)',
+      id: 'sleep', name: 'Sleep', description: 'Track sleep quality',
+      icon: Moon, color: '#818cf8', bgGradient: 'rgba(129, 140, 248, 0.2)',
       trackerType: 'sleep',
     },
   ];
@@ -210,44 +122,40 @@ export function SessionsGrid() {
         <NavMiniCards />
 
         {apps.map((app) => {
-          const activeSession = findActiveSession(app.trackerType);
-          const stats = getSessionStats(app.trackerType);
+          const active = app.trackerType !== 'sleep' && isActive(app.trackerType as 'gym' | 'diet' | 'habit');
+          const stats = app.trackerType !== 'sleep' ? getSessionStats(app.trackerType as 'gym' | 'diet' | 'habit') : null;
           const Icon = app.icon;
-          const isActive = !!activeSession && !app.comingSoon;
 
           return (
             <div
               key={app.id}
-              onClick={app.comingSoon ? undefined : app.id === 'sleep' ? undefined : app.onClick}
+              onClick={app.route ? () => router.push(app.route!) : undefined}
               className={`
                 relative flex flex-col p-3 sm:p-4
                 bg-[var(--color-surface)] rounded-xl
                 transition-all duration-200
-                ${app.comingSoon
-                  ? 'opacity-50 cursor-not-allowed border border-[var(--color-line)]'
-                  : app.id === 'sleep'
-                    ? 'cursor-default border border-[var(--color-line)]'
-                    : 'hover:shadow-lg hover:shadow-black/5 cursor-pointer active:scale-[0.98] border'
+                ${app.id === 'sleep'
+                  ? 'cursor-default border border-[var(--color-line)]'
+                  : 'hover:shadow-lg hover:shadow-black/5 cursor-pointer active:scale-[0.98] border'
                 }
                 group
               `}
               style={
-                isActive
+                active
                   ? {
                       borderColor: app.color,
                       boxShadow: `0 0 16px ${app.color}40, 0 0 4px ${app.color}30`,
                     }
-                  : !app.comingSoon && app.id !== 'sleep'
+                  : app.id !== 'sleep'
                     ? { borderColor: 'var(--color-line)' }
                     : undefined
               }
             >
               {/* Active session action buttons */}
-              {isActive && (
+              {active && (
                 <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-                  {/* Complete button */}
                   <button
-                    onClick={(e) => handleComplete(e, app.trackerType)}
+                    onClick={(e) => handleComplete(e, app.trackerType as 'gym' | 'diet' | 'habit')}
                     className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
                     style={{ backgroundColor: `${app.color}20`, color: app.color }}
                     title="Mark as complete"
@@ -255,7 +163,6 @@ export function SessionsGrid() {
                     <Check className="w-4 h-4" strokeWidth={2.5} />
                   </button>
 
-                  {/* 3-dot menu */}
                   <div className="relative" ref={openMenuId === app.id ? menuRef : undefined}>
                     <button
                       onClick={(e) => {
@@ -271,7 +178,7 @@ export function SessionsGrid() {
                     {openMenuId === app.id && (
                       <div className="absolute right-0 top-8 min-w-[160px] py-1 bg-[var(--color-surface)] border border-[var(--color-line)] rounded-lg shadow-lg z-20">
                         <button
-                          onClick={(e) => handleDelete(e, app.trackerType)}
+                          onClick={(e) => handleDelete(e, app.trackerType as 'gym' | 'diet' | 'habit')}
                           className="w-full px-3 py-2 text-left text-sm text-[var(--color-error)] hover:bg-[var(--color-bg)] transition-colors"
                         >
                           Delete this session
@@ -287,19 +194,12 @@ export function SessionsGrid() {
                 className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl mb-2 transition-transform group-hover:scale-105"
                 style={{ backgroundColor: app.bgGradient }}
               >
-                <Icon
-                  className="w-5 h-5 sm:w-6 sm:h-6"
-                  style={{ color: app.color }}
-                />
+                <Icon className="w-5 h-5 sm:w-6 sm:h-6" style={{ color: app.color }} />
               </div>
 
               {/* Title & Description */}
-              <h3 className="font-semibold text-[var(--color-text)] text-sm sm:text-base leading-tight">
-                {app.name}
-              </h3>
-              <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-snug">
-                {app.description}
-              </p>
+              <h3 className="font-semibold text-[var(--color-text)] text-sm sm:text-base leading-tight">{app.name}</h3>
+              <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-snug">{app.description}</p>
 
               {/* Status */}
               <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
@@ -308,69 +208,42 @@ export function SessionsGrid() {
                     {sleepEnabled ? (
                       <div className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: app.color }} />
-                        <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>
-                          Active
-                        </span>
+                        <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>Active</span>
                       </div>
                     ) : (
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                        Off
-                      </span>
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">Off</span>
                     )}
                     <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSleepEnabled(!sleepEnabled);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); setSleepEnabled(!sleepEnabled); }}
                       role="switch"
                       aria-checked={sleepEnabled}
                       className="cursor-pointer"
                       style={{
-                        position: 'relative',
-                        width: 36,
-                        height: 20,
-                        borderRadius: 10,
+                        position: 'relative', width: 36, height: 20, borderRadius: 10,
                         backgroundColor: sleepEnabled ? app.color : 'var(--color-line)',
                         transition: 'background-color 0.2s',
                       }}
                     >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 2,
-                          left: 2,
-                          width: 16,
-                          height: 16,
-                          borderRadius: 8,
-                          backgroundColor: '#fff',
-                          transform: sleepEnabled ? 'translateX(16px)' : 'translateX(0)',
-                          transition: 'transform 0.2s',
-                        }}
-                      />
+                      <div style={{
+                        position: 'absolute', top: 2, left: 2, width: 16, height: 16, borderRadius: 8,
+                        backgroundColor: '#fff',
+                        transform: sleepEnabled ? 'translateX(16px)' : 'translateX(0)',
+                        transition: 'transform 0.2s',
+                      }} />
                     </div>
                   </div>
-                ) : app.comingSoon ? (
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                    Coming Soon
-                  </span>
-                ) : activeSession ? (
+                ) : active ? (
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: app.color }} />
-                      <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>
-                        Active
-                      </span>
+                      <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: app.color }}>Active</span>
                     </div>
                     {stats && (
-                      <span className="text-xs text-[var(--color-muted)]">
-                        {stats.primary}
-                      </span>
+                      <span className="text-xs text-[var(--color-muted)]">{stats.primary}</span>
                     )}
                   </div>
                 ) : (
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                    Start
-                  </span>
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">Start</span>
                 )}
               </div>
             </div>
@@ -393,10 +266,8 @@ export function SessionsGrid() {
               : { borderColor: 'var(--color-line)' }
           }
         >
-          {/* Connected: action buttons */}
           {gfitConnected && (
             <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
-              {/* Sync button */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -413,7 +284,6 @@ export function SessionsGrid() {
                   : <RefreshCw className="w-3.5 h-3.5" />}
               </button>
 
-              {/* 3-dot menu */}
               <div className="relative" ref={openMenuId === 'gfit' ? menuRef : undefined}>
                 <button
                   onClick={(e) => {
@@ -445,7 +315,6 @@ export function SessionsGrid() {
             </div>
           )}
 
-          {/* Icon */}
           <div
             className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl mb-2 transition-transform group-hover:scale-105"
             style={{ backgroundColor: 'rgba(66, 133, 244, 0.15)' }}
@@ -453,28 +322,19 @@ export function SessionsGrid() {
             <GoogleFitIcon className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
 
-          <h3 className="font-semibold text-[var(--color-text)] text-sm sm:text-base leading-tight">
-            Google Fit
-          </h3>
-          <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-snug">
-            Import health data
-          </p>
+          <h3 className="font-semibold text-[var(--color-text)] text-sm sm:text-base leading-tight">Google Fit</h3>
+          <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-snug">Import health data</p>
 
-          {/* Status */}
           <div className="mt-2 pt-2 border-t border-[var(--color-line)]">
             {gfitLoading ? (
               <Loader2 className="w-3 h-3 animate-spin text-[var(--color-muted)]" />
             ) : gfitConnected ? (
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#4285F4] animate-pulse" />
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[#4285F4]">
-                  Connected
-                </span>
+                <span className="text-[10px] font-medium uppercase tracking-wide text-[#4285F4]">Connected</span>
               </div>
             ) : (
-              <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                Connect
-              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">Connect</span>
             )}
           </div>
         </div>
@@ -487,13 +347,6 @@ export function SessionsGrid() {
           Tap an app to start tracking. Your AI coach will guide you.
         </p>
       </div>
-
-      <SessionModal
-        isOpen={isModalOpen}
-        quickType={quickType}
-        onClose={handleCloseModal}
-        onCreated={handleSessionCreated}
-      />
     </>
   );
 }

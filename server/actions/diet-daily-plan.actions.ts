@@ -12,7 +12,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 /**
  * Generate today's recommended targets from this week's diet data.
- * Uses gpt-4o-mini — fast, cheap (~$0.005), focused on one task.
+ * Uses gpt-4.1-mini — fast, cheap (~$0.005), focused on one task.
  */
 export async function generateDietDayPlan(
   profile: DietGoalProfile,
@@ -59,7 +59,7 @@ Output ONLY JSON:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
         max_tokens: 150,

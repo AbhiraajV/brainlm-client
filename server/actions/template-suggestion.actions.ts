@@ -192,7 +192,7 @@ async function callOpenAI(
   includeTools: boolean
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o',
+    model: 'gpt-4.1',
     messages,
     temperature: 0.7,
     max_tokens: includeTools ? 2500 : 500,
@@ -608,7 +608,7 @@ export async function generateWorkoutPlan(
     ];
 
     const requestBody: Record<string, unknown> = {
-      model: 'gpt-4o',
+      model: 'gpt-4.1',
       messages,
       temperature: 0.7,
       max_tokens: 1500,
@@ -927,7 +927,7 @@ export async function editWorkoutPlan(
     ];
 
     const requestBody: Record<string, unknown> = {
-      model: 'gpt-4o',
+      model: 'gpt-4.1',
       messages,
       temperature: 0.7,
       max_tokens: 1500,

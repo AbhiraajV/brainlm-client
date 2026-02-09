@@ -271,7 +271,7 @@ async function callOpenAI(
   maxTokens: number = 500
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o',
+    model: 'gpt-4.1',
     messages,
     temperature: 0.7,
     max_tokens: maxTokens,

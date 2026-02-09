@@ -378,7 +378,7 @@ async function generateSeed(title: string, context: string): Promise<string> {
       method: 'POST',
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: SEED_GENERATION_PROMPT },
           { role: 'user', content: `title="${title}", context="${context}"` },
@@ -688,7 +688,7 @@ async function condenseSessionKnowledge(title: string, goal: string, knowledge: 
       method: 'POST',
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'system', content: GOAL_COACH_PROMPT }, { role: 'user', content: input }],
         temperature: 0.6,
         max_tokens: 4000,

@@ -404,7 +404,7 @@ export async function condenseSessionKnowledge(
     const useStructuredOutput = trackerType === 'gym' || trackerType === 'diet';
 
     const requestBody: Record<string, unknown> = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: brainTransferPrompt },
         { role: 'user', content: input },

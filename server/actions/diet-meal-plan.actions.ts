@@ -5,7 +5,7 @@
  *
  * After user accepts daily targets, generates a personalized meal plan
  * based on past diet history, patterns, and user preferences.
- * Uses gpt-4o-mini for fast, cheap generation via tool calling.
+ * Uses gpt-4.1-mini for fast, cheap generation via tool calling.
  */
 
 import { requireUser } from '@/server/auth';
@@ -282,7 +282,7 @@ export async function generateTodaysMealPlan(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: 'Generate my meal plan for today.' },

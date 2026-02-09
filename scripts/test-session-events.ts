@@ -289,7 +289,7 @@ async function callLLM(prompt: string, userMessage: string): Promise<string | nu
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: userMessage },

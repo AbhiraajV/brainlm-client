@@ -3,7 +3,7 @@
  *
  * Stripped-down agent focused solely on converting user input into
  * tool calls that update the workout log. No coaching, no advice.
- * Uses gpt-4o-mini for fast, cheap data parsing.
+ * Uses gpt-4.1-mini for fast, cheap data parsing.
  *
  * All data-parsing prompt sections are preserved verbatim from
  * gym-coach-agent.ts to maintain parsing reliability.
@@ -732,14 +732,14 @@ VERIFY: Does every piece of data from the user's message appear correctly in the
 }
 
 /**
- * Call OpenAI API — uses gpt-4o-mini for cost efficiency
+ * Call OpenAI API — uses gpt-4.1-mini for cost efficiency
  */
 async function callOpenAI(
   messages: ChatMessage[],
   includeTools: boolean
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1-mini',
     messages,
     temperature: 0.1, // Very low for strict instruction following
     max_tokens: includeTools ? 1024 : 100 // 1024 for tool reasoning, 100 for short tracker responses

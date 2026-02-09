@@ -794,6 +794,55 @@ export interface SessionAnalysis {
   generatedAt: string;
 }
 
+// ============================================================================
+// ANALYSIS DELTA TYPES (for incremental updates)
+// ============================================================================
+
+/**
+ * Delta output from LLM — contains only NEW/CHANGED items.
+ * Client merges this into the cached SessionAnalysis.
+ */
+export interface AnalysisDelta {
+  hasChanges: boolean; // false = nothing meaningful changed, skip merge
+
+  // New items to PREPEND to arrays
+  newHistoryEntries: SessionAnalysis['relevantHistory'];
+  newPatterns: SessionAnalysis['patterns'];
+  newCorrelations: SessionAnalysis['correlations'];
+  newHistoryBriefings: NonNullable<SessionAnalysis['historyBriefings']>;
+  newEmotionalFactors: NonNullable<SessionAnalysis['emotionalFactors']>;
+  newWhatWorkedBefore: NonNullable<SessionAnalysis['whatWorkedBefore']>;
+  newRootCauses: NonNullable<SessionAnalysis['rootCauses']>;
+
+  // Updates to EXISTING items (find by name/label, merge fields)
+  updatedPatterns: {
+    name: string; // match key
+    trend?: 'improving' | 'stable' | 'declining' | 'unknown';
+    confidence?: 'low' | 'medium' | 'high';
+    newEvidence?: string[]; // append to existing evidence
+  }[];
+  updatedHistoryBriefings: {
+    label: string; // match key
+    prependFullHistory?: string; // text to prepend to fullHistory
+    keyTakeaways?: string; // replaces existing keyTakeaways
+    newLinkedPatterns?: string[]; // union with existing
+    newLinkedInsights?: string[]; // union with existing
+  }[];
+
+  // Coach briefing — only changed sub-fields (others stay as-is)
+  coachBriefingUpdates: {
+    userProfile?: string;
+    whatGoesWrong?: string;
+    whyItGoesWrong?: string;
+    howWeFixedItBefore?: string;
+    todaysRisks?: string;
+    recommendedApproach?: string;
+  };
+
+  // Text to prepend to context
+  contextAppend: string;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -928,7 +977,7 @@ export interface CachedGymData {
  */
 export interface CacheState {
   knowledgeCache: Partial<Record<TrackerType, CachedKnowledge>>;
-  analysisCache: Partial<Record<TrackerType, CachedAnalysis>>;
+  analysisCache: Record<string, CachedAnalysis>; // key: trackerType or trackerType:workoutContextKey
   gymDataCache: CachedGymData | null;
 }
 
@@ -941,10 +990,10 @@ export interface CacheActions {
   updateKnowledgeCache: (trackerType: TrackerType, updates: Partial<CachedKnowledge>) => void;
   clearKnowledgeCache: (trackerType?: TrackerType) => void;
 
-  // Analysis cache
-  setAnalysisCache: (trackerType: TrackerType, cache: CachedAnalysis) => void;
-  updateAnalysisCache: (trackerType: TrackerType, updates: Partial<CachedAnalysis>) => void;
-  clearAnalysisCache: (trackerType?: TrackerType) => void;
+  // Analysis cache (key: trackerType or trackerType:workoutContextKey)
+  setAnalysisCache: (cacheKey: string, cache: CachedAnalysis) => void;
+  updateAnalysisCache: (cacheKey: string, updates: Partial<CachedAnalysis>) => void;
+  clearAnalysisCache: (trackerType?: TrackerType) => void; // clears all keys matching prefix
 
   // Gym data cache
   setGymDataCache: (cache: CachedGymData) => void;

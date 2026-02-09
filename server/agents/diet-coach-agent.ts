@@ -773,7 +773,7 @@ async function callOpenAI(
   includeTools: boolean
 ): Promise<OpenAIResponse> {
   const requestBody: Record<string, unknown> = {
-    model: 'gpt-4o',
+    model: 'gpt-4.1',
     messages,
     temperature: 0.1, // Low for strict instruction following (matches gym agent)
     max_tokens: includeTools ? 1024 : 200 // 1024 for tool reasoning, 200 for short coaching comments
